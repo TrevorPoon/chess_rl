@@ -42,7 +42,7 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
         
         # Finish recording if we were recording this game
         if should_record:
-            recorder.end_game("Self-play_" + model_type, framerate=2)
+            recorder.end_game(str("Self-play_" + model_type), framerate=2)
             print(f"\nVideo saved for game {game}!")
         
         # Determine game outcome
@@ -79,9 +79,9 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
 
             # Save the model periodically
             if game % 100 == 0:
-                model.save_model()
+                model.save_model("Self-play_" + model_type + ".pth")
 
-def competitive_training(model, competitor, num_games=1000000, moves_per_game=1000, viz_every=50):
+def competitive_training(model, model_type, competitor, num_games=1000000, moves_per_game=1000, viz_every=50):
     """
     Train the model by playing competitive matches against Stockfish.
     In this setup the training agent always plays as White (i.e. board.turn == True),
@@ -119,7 +119,7 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
                 recorder.save_frame(board)
         
         if should_record:
-            recorder.end_game("Competitive_" + args.agent,framerate=2)
+            recorder.end_game(str("Competitive_" + model_type) ,framerate=2)
             print(f"\nVideo saved for game {game}!")
         
         # Determine game outcome from the training agent's perspective (playing as White)
@@ -155,7 +155,7 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
             print(f"Game {game}, Loss: {loss}")
 
             if game % 100 == 0:
-                model.save_model()
+                model.save_model("Competitive_" + model_type + ".pth")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -196,5 +196,5 @@ if __name__ == "__main__":
             raise ValueError("Competitive mode requires an opponent to be specified: 'stockfish'.")
         # Import the Stockfish agent
         from agent_stockfish import ChessStockfishAgent
-        competitor = ChessStockfishAgent(engine_path="/home/s2652867/stockfish/stockfish-ubuntu-x86-64", time_limit=0.1)
+        competitor = ChessStockfishAgent(engine_path="/opt/homebrew/bin/stockfish", time_limit=0.1)
         competitive_training(model, args.agent, competitor)

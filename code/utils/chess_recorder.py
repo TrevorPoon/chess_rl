@@ -34,14 +34,19 @@ class ChessVideoRecorder:
         if self.current_frames_dir is None:
             return
             
-        # Create video from frames
+        # Create the subdirectory for the video output if it doesn't exist.
+        output_subdir = os.path.join(self.output_dir, model_type)
+        os.makedirs(output_subdir, exist_ok=True)
+        
+        # Build the frames pattern and the output video path.
         frames_pattern = os.path.join(self.current_frames_dir, "position_%04d.png")
-        video_path = os.path.join(self.output_dir, f"{model_type}/game_{self.current_game}.mp4")
+        video_path = os.path.join(output_subdir, f"game_{self.current_game}.mp4")
         
+        # Create video from frames using ffmpeg.
         os.system(f'ffmpeg -y -framerate {framerate} -i {frames_pattern} '
-                 f'-c:v libx264 -pix_fmt yuv420p {video_path} -hide_banner -loglevel error')
+                  f'-c:v libx264 -pix_fmt yuv420p {video_path} -hide_banner -loglevel error')
         
-        # Cleanup
+        # Cleanup the temporary frames directory.
         shutil.rmtree(self.current_frames_dir)
         self.current_frames_dir = None
         self.current_game = None
