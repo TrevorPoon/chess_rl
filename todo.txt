@@ -1,0 +1,2 @@
+And add parser such that I could have an option to training / play the selected model
+evaluation -- elo, eff, win rate
