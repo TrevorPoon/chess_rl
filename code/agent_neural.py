@@ -49,7 +49,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-class ChessRL:
+class ChessNeuralAgent:
     def __init__(self):
         self.device = torch.device("cpu")
         self.model = ChessNet().to(self.device)

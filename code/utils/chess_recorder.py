@@ -29,14 +29,14 @@ class ChessVideoRecorder:
         svg_str = chess.svg.board(board=board)
         cairosvg.svg2png(bytestring=svg_str.encode('utf-8'), write_to=frame_path)
     
-    def end_game(self, framerate=1):
+    def end_game(self, model_type="NA", framerate=1):
         """Create video from collected frames and cleanup"""
         if self.current_frames_dir is None:
             return
             
         # Create video from frames
         frames_pattern = os.path.join(self.current_frames_dir, "position_%04d.png")
-        video_path = os.path.join(self.output_dir, f"game_{self.current_game}.mp4")
+        video_path = os.path.join(self.output_dir, f"{model_type}/game_{self.current_game}.mp4")
         
         os.system(f'ffmpeg -y -framerate {framerate} -i {frames_pattern} '
                  f'-c:v libx264 -pix_fmt yuv420p {video_path} -hide_banner -loglevel error')
@@ -51,4 +51,4 @@ def save_game_video(board, game_number, framerate=1):
     video_maker = ChessVideoRecorder()
     video_maker.start_game(game_number)
     video_maker.save_frame(board)
-    video_maker.end_game(framerate)
+    video_maker.end_game(model_type=None, framerate=framerate)
