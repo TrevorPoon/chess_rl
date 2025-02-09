@@ -142,7 +142,7 @@ class ChessNeuralAgent:
     
     def save_model(self, model_name="chess_model.pth"):
         """Save the model to the 'model' directory in the parent directory"""
-        model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model')
+        model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'model')
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
         torch.save(self.model.state_dict(), os.path.join(model_dir, model_name))

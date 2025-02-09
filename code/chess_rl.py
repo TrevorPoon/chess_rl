@@ -188,7 +188,6 @@ if __name__ == "__main__":
 
     # Load configuration from config.json
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
-    print(config_path)
     try:
         with open(config_path, "r") as f:
             config = json.load(f)

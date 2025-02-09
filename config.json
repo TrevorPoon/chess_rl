@@ -1,6 +1,5 @@
 {
     "engine": {
-      "stockfish_path": "/home/s2652867/stockfish"
-
+      "stockfish_path": "/opt/homebrew/bin/stockfish"
     }
   }
