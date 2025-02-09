@@ -3,6 +3,8 @@ import chess
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
+import json
 
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import board_to_tensor, get_move_space_size
@@ -157,6 +159,7 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
             if game % 100 == 0:
                 model.save_model("Competitive_" + model_type + ".pth")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run training for a chess agent in self-play or competitive mode."
@@ -183,6 +186,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Load configuration from config.json
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file not found at {config_path}")
+
+    # Extract configuration settings with fallbacks if necessary
+    stockfish_path = config.get("engine", {}).get("stockfish_path", {})
+
     # Instantiate the training agent (currently only 'neural' is supported)
     if args.agent == "neural":
         model = ChessNeuralAgent()
@@ -196,5 +210,5 @@ if __name__ == "__main__":
             raise ValueError("Competitive mode requires an opponent to be specified: 'stockfish'.")
         # Import the Stockfish agent
         from agent_stockfish import ChessStockfishAgent
-        competitor = ChessStockfishAgent(engine_path="/opt/homebrew/bin/stockfish", time_limit=0.1)
+        competitor = ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1)
         competitive_training(model, args.agent, competitor)
