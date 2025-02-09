@@ -8,7 +8,7 @@ import json
 
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import board_to_tensor, get_move_space_size
-from agent_neural import ChessNeuralAgent
+from rl_agent.agent_neural import ChessNeuralAgent
 
 def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000, viz_every=50):
     """Train the model through self-play with video recording."""
@@ -188,6 +188,7 @@ if __name__ == "__main__":
 
     # Load configuration from config.json
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+    print(config_path)
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
@@ -209,6 +210,6 @@ if __name__ == "__main__":
         if not args.opponent:
             raise ValueError("Competitive mode requires an opponent to be specified: 'stockfish'.")
         # Import the Stockfish agent
-        from agent_stockfish import ChessStockfishAgent
+        from built_in_agent.agent_stockfish import ChessStockfishAgent
         competitor = ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1)
         competitive_training(model, args.agent, competitor)
