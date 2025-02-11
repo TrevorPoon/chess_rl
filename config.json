@@ -1,5 +1,5 @@
 {
     "engine": {
-      "stockfish_path": "/opt/homebrew/bin/stockfish"
+      "stockfish_path": "/afs/inf.ed.ac.uk/user/s26/s2652867/stockfish/stockfish-ubuntu-x86-64-avx2"
     }
   }
