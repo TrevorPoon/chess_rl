@@ -5,14 +5,24 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import json
+import names
+import datetime
+
 
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import board_to_tensor, get_move_space_size
 from rl_agent.agent_neural import ChessNeuralAgent
 
+def generate_unique_model_name(prefix):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    random_name = names.get_first_name()
+    return f"{prefix}_{random_name}_{timestamp}"
+
 def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000, viz_every=50):
     """Train the model through self-play with video recording."""
     recorder = ChessVideoRecorder()
+
+    model_filename = generate_unique_model_name("Self-play")
     
     for game in range(num_games):
         board = chess.Board()
@@ -44,7 +54,7 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
         
         # Finish recording if we were recording this game
         if should_record:
-            recorder.end_game(str("Self-play_" + model_type), framerate=2)
+            recorder.end_game(str(model_filename + "_" + model_type), framerate=2)
             print(f"\nVideo saved for game {game}!")
         
         # Determine game outcome
@@ -81,7 +91,7 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
 
             # Save the model periodically
             if game % 100 == 0:
-                model.save_model("Self-play_" + model_type + ".pth")
+                model.save_model(model_filename + "_" + model_type + ".pth")
 
 def competitive_training(model, model_type, competitor, num_games=1000000, moves_per_game=1000, viz_every=50):
     """
@@ -90,6 +100,7 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
     while Stockfish plays as Black.
     """
     recorder = ChessVideoRecorder()
+    model_filename = generate_unique_model_name("Competitive")
     
     for game in range(num_games):
         board = chess.Board()
@@ -121,7 +132,7 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
                 recorder.save_frame(board)
         
         if should_record:
-            recorder.end_game(str("Competitive_" + model_type) ,framerate=2)
+            recorder.end_game(str(model_filename + "_" + model_type) ,framerate=2)
             print(f"\nVideo saved for game {game}!")
         
         # Determine game outcome from the training agent's perspective (playing as White)
@@ -157,7 +168,7 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
             print(f"Game {game}, Loss: {loss}")
 
             if game % 100 == 0:
-                model.save_model("Competitive_" + model_type + ".pth")
+                model.save_model(model_filename + "_" + model_type  + ".pth")
 
 
 if __name__ == "__main__":
