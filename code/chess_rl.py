@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import json
+import wandb
+from datetime import datetime
 
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import *
@@ -14,7 +16,8 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
     """Train the model through self-play with video recording."""
     recorder = ChessVideoRecorder()
 
-    model_filename = generate_unique_model_name("Self-play")
+    # Use the updated wandb.run.name (random name with timestamp appended)
+    model_filename = wandb.run.name
     
     for game in range(num_games):
         board = chess.Board()
@@ -46,8 +49,9 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
         
         # Finish recording if we were recording this game
         if should_record:
-            recorder.end_game(str(model_filename + "_" + model_type), framerate=2)
-            print(f"\nVideo saved for game {game}!")
+            video_name = f"{model_filename}"
+            recorder.end_game(video_name, framerate=2)
+            print(f"\nVideo saved for game {game} as {video_name}!")
         
         # Determine game outcome
         if board.is_checkmate():
@@ -80,10 +84,13 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
         if game % 10 == 0:
             loss = model.train_step()
             print(f"Game {game}, Loss: {loss}")
-
+            wandb.log({"game": game, "loss": loss, "mode": "self-play"})
+            
             # Save the model periodically
             if game % 100 == 0:
-                model.save_model(model_filename + "_" + model_type + ".pth")
+                model_path = f"{model_filename}.pth"
+                model.save_model(model_path)
+                wandb.save(model_path)
 
 def competitive_training(model, model_type, competitor, num_games=1000000, moves_per_game=1000, viz_every=50):
     """
@@ -92,7 +99,9 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
     while Stockfish plays as Black.
     """
     recorder = ChessVideoRecorder()
-    model_filename = generate_unique_model_name("Competitive")
+    
+    # Use the updated wandb.run.name (random name with timestamp appended)
+    model_filename = wandb.run.name
     
     for game in range(num_games):
         board = chess.Board()
@@ -124,8 +133,9 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
                 recorder.save_frame(board)
         
         if should_record:
-            recorder.end_game(str(model_filename + "_" + model_type) ,framerate=2)
-            print(f"\nVideo saved for game {game}!")
+            video_name = f"{model_filename}"
+            recorder.end_game(video_name, framerate=2)
+            print(f"\nVideo saved for game {game} as {video_name}!")
         
         # Determine game outcome from the training agent's perspective (playing as White)
         if board.is_checkmate():
@@ -158,10 +168,12 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
         if game % 10 == 0:
             loss = model.train_step()
             print(f"Game {game}, Loss: {loss}")
-
+            wandb.log({"game": game, "loss": loss, "mode": "competitive"})
+            
             if game % 100 == 0:
-                model.save_model(model_filename + "_" + model_type  + ".pth")
-
+                model_path = f"{model_filename}.pth"
+                model.save_model(model_path)
+                wandb.save(model_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -187,6 +199,12 @@ if __name__ == "__main__":
         choices=["stockfish"],
         help="Specify the opponent for competitive mode. Only 'stockfish' is supported."
     )
+    parser.add_argument(
+        "--notes",
+        type=str,
+        default="",
+        help="Additional notes to log in wandb."
+    )
     args = parser.parse_args()
 
     # Load configuration from config.json
@@ -199,6 +217,16 @@ if __name__ == "__main__":
 
     # Extract configuration settings with fallbacks if necessary
     stockfish_path = config.get("engine", {}).get("stockfish_path", {})
+
+    # Initialize wandb without specifying a name so it generates one automatically.
+    run = wandb.init(
+        project="chess_rl",
+        config=config,
+        notes=args.notes
+    )
+    # Append current time to the randomly generated wandb run name.
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run.name = f"{args.mode.capitalize()}_{args.agent}_{run.name}_{timestamp}"
 
     # Instantiate the training agent (currently only 'neural' is supported)
     if args.agent == "neural":

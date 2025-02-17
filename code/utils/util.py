@@ -33,7 +33,3 @@ def board_to_tensor(board):
     tensor[7] = torch.ones(8, 8) * len(board.move_stack) / 100.0
     
     return tensor.permute(0, 1, 2)
-
-def generate_unique_model_name(prefix):
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{prefix}_{names.get_first_name()}{names.get_first_name()}{names.get_first_name()}_{timestamp}"

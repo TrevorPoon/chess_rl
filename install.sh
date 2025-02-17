@@ -4,3 +4,4 @@ conda install -c conda-forge cairo
 pip install cairosvg
 conda install numpy
 pip install names
+pip install wandb
