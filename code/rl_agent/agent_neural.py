@@ -56,6 +56,19 @@ class ChessNeuralAgent:
         self.optimizer = optim.Adam(self.model.parameters())
         self.replay_buffer = ReplayBuffer()
 
+    def load_model(self, model_path):
+        """Load the model parameters from a checkpoint file."""
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        try:
+            checkpoint = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(checkpoint)
+            self.model.eval()
+            print(f"Model loaded successfully from {model_path}")
+        except Exception as e:
+            print(f"Error loading model from {model_path}: {e}")
+            raise e
+
     def move_to_index(self, move):
         """Convert a chess move to an index in the policy vector.
         Regular moves: first 4096 indices (64*64)
@@ -87,6 +100,11 @@ class ChessNeuralAgent:
             
         return index
 
+    def eval(self):
+        """Set the model to evaluation mode."""
+        self.model.eval()
+        print("Model set to evaluation mode.")
+
     def select_move(self, board, temperature=1.0):
         """Select a move using the current policy"""
         state = board_to_tensor(board).unsqueeze(0).to(self.device)
@@ -102,7 +120,7 @@ class ChessNeuralAgent:
                 move_probs[i] = policy[0][move_idx]
         
         # Apply temperature and handle zero probabilities
-        move_probs = move_probs ** (1/temperature)
+        move_probs = move_probs ** (1/(temperature + 1e-10))
         if move_probs.sum() > 0:
             move_probs /= move_probs.sum()
         else:

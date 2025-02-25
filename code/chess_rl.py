@@ -11,8 +11,15 @@ from datetime import datetime
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import *
 from rl_agent.agent_neural import ChessNeuralAgent
+from rl_agent.agent_mcts import ChessRLWithMCTS
+from eval import run_evaluation, show_computational_metrics
 
-def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000, viz_every=50):
+
+
+
+BEST_MODEL_PATH = "model_best/Self-play_20250223_193946_neural_fanciful-mountain-17.pth"
+
+def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every=1000):
     """Train the model through self-play with video recording."""
     recorder = ChessVideoRecorder()
 
@@ -80,19 +87,10 @@ def self_play_training(model, model_type, num_games=1000000, moves_per_game=1000
             )
             value = -value  # Flip the value to reflect the opponent's perspective
         
-        # Training step
         if game % 10 == 0:
-            loss = model.train_step()
-            print(f"Game {game}, Loss: {loss}")
-            wandb.log({"game": game, "loss": loss, "mode": "self-play"})
-            
-            # Save the model periodically
-            if game % 100 == 0:
-                model_path = f"{model_filename}.pth"
-                model.save_model(model_path)
-                wandb.save(model_path)
+            save_model_metric(game, model, model_filename)
 
-def competitive_training(model, model_type, competitor, num_games=1000000, moves_per_game=1000, viz_every=50):
+def competitive_training(model, competitor, num_games=1000000, moves_per_game=10000, viz_every=1000):
     """
     Train the model by playing competitive matches against Stockfish.
     In this setup the training agent always plays as White (i.e. board.turn == True),
@@ -166,14 +164,42 @@ def competitive_training(model, model_type, competitor, num_games=1000000, moves
         
         # Training step
         if game % 10 == 0:
-            loss = model.train_step()
-            print(f"Game {game}, Loss: {loss}")
-            wandb.log({"game": game, "loss": loss, "mode": "competitive"})
-            
-            if game % 100 == 0:
-                model_path = f"{model_filename}.pth"
-                model.save_model(model_path)
-                wandb.save(model_path)
+            save_model_metric(game, model, model_filename)
+
+
+def save_model_metric(game, model, model_filename):
+    loss = model.train_step()
+    print(f"Game {game}, Loss: {loss}")
+    
+    # Log basic training metrics and checkpoint every 100 games.
+    if game % 100 == 0:
+        wandb.log({"loss": loss, "mode": args.mode})
+        model_path = f"{model_filename}.pth"
+        model.save_model(model_path)
+        wandb.save(model_path)
+    
+    # Every 1000 games, run a more expensive evaluation and log additional metrics.
+    if game % 1000 == 0:
+        # Evaluate the model against Stockfish by comparing with the best saved model.
+        global BEST_MODEL_PATH
+        best_model = ChessNeuralAgent()
+        best_model.load_model(BEST_MODEL_PATH)
+        best_model.eval()
+
+        # Get computational metrics from the model.
+        estimated_ram_mib, compressed_size_kib, cpu_freq = show_computational_metrics(model)
+
+        win_rate_best_model = run_evaluation(model, best_model, num_games=50)
+        
+        # Log all evaluation and computational metrics.
+        wandb.log({
+            "win_rate_best_model": win_rate_best_model,
+            "estimated_ram_mib": estimated_ram_mib,
+            "compressed_size_kib": compressed_size_kib,
+            "cpu_freq": cpu_freq.current
+        })
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -189,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["neural"],
+        choices=["neural", "MCTS"],
         default="neural",
         help="Specify the training agent type. Currently supported: 'neural'."
     )
@@ -205,6 +231,12 @@ if __name__ == "__main__":
         default="",
         help="Additional notes to log in wandb."
     )
+    parser.add_argument(
+        "--num_games",
+        type=int,
+        default=1000000,
+        help="Number of games to play in training."
+    )
     args = parser.parse_args()
 
     # Load configuration from config.json
@@ -215,9 +247,18 @@ if __name__ == "__main__":
     except FileNotFoundError:
         raise FileNotFoundError(f"Configuration file not found at {config_path}")
 
+
     # Extract configuration settings with fallbacks if necessary
     stockfish_path = config.get("engine", {}).get("stockfish_path", {})
 
+    # Instantiate the training agent
+    if args.agent == "neural":
+        model = ChessNeuralAgent()
+    elif args.agent == "MCTS":
+        model = ChessRLWithMCTS()
+    else:
+        raise ValueError(f"Unsupported agent type: {args.agent}")
+    
     # Initialize wandb without specifying a name so it generates one automatically.
     run = wandb.init(
         project="chess_rl",
@@ -226,20 +267,14 @@ if __name__ == "__main__":
     )
     # Append current time to the randomly generated wandb run name.
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run.name = f"{args.mode.capitalize()}_{args.agent}_{run.name}_{timestamp}"
-
-    # Instantiate the training agent (currently only 'neural' is supported)
-    if args.agent == "neural":
-        model = ChessNeuralAgent()
-    else:
-        raise ValueError(f"Unsupported agent type: {args.agent}")
+    run.name = f"{args.mode.capitalize()}_{timestamp}_{args.agent}_{run.name}"
     
     if args.mode == "self-play":
-        self_play_training(model, args.agent)
+        self_play_training(model, num_games=args.num_games)
     elif args.mode == "competitive":
         if not args.opponent:
             raise ValueError("Competitive mode requires an opponent to be specified: 'stockfish'.")
         # Import the Stockfish agent
         from built_in_agent.agent_stockfish import ChessStockfishAgent
         competitor = ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1)
-        competitive_training(model, args.agent, competitor)
+        competitive_training(model, competitor, num_games=args.num_games)

@@ -1,1 +1,1 @@
-python code/chess_rl.py --mode competitive --agent neural --opponent stockfish
+python code/chess_rl.py --mode self-play --agent neural
