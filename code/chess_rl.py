@@ -29,7 +29,7 @@ def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every
     for game in range(num_games):
         board = chess.Board()
         game_states = []
-        should_record = game % viz_every == 0
+        should_record = args.record and (game % viz_every == 0)
         
         if should_record:
             recorder.start_game(game)
@@ -105,7 +105,7 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
         board = chess.Board()
         # Record only the states when the training model (White) makes a move.
         model_states = []
-        should_record = game % viz_every == 0
+        should_record = args.record and (game % viz_every == 0)
         
         if should_record:
             recorder.start_game(game)
@@ -165,7 +165,6 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
         # Training step
         if game % 10 == 0:
             save_model_metric(game, model, model_filename)
-
 
 def save_model_metric(game, model, model_filename):
     loss = model.train_step()
@@ -237,6 +236,13 @@ if __name__ == "__main__":
         default=1000000,
         help="Number of games to play in training."
     )
+    parser.add_argument(
+    "--record",
+    type=lambda x: x.lower() in ['true', '1', 'yes'],
+    default=False,
+    help="Enable video recording during training. Specify True or False (default: False)"
+    )
+
     args = parser.parse_args()
 
     # Load configuration from config.json
