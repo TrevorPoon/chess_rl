@@ -5,7 +5,7 @@ This repository contains code for developing resource-constrained chess engines 
 ## Prerequisites
 
 - Python 3.13.1
-- Required Python packages (see `install.sh`)
+- Required Python packages (see `environment.yml`)
 - [Stockfish](https://stockfishchess.org/download/) (download and install Stockfish from the official website)
 
 > **Note:**  
