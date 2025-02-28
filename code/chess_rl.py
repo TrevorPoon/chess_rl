@@ -11,7 +11,7 @@ from datetime import datetime
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import *
 from rl_agent.agent_neural import ChessNeuralAgent
-from rl_agent.agent_mcts import ChessRLWithMCTS
+from rl_agent.agent_mcts import ChessAlphaZeroAgent
 from eval import run_evaluation, show_computational_metrics
 
 
@@ -172,7 +172,7 @@ def save_model_metric(game, model, model_filename):
     
     # Log basic training metrics and checkpoint every 100 games.
     if game % 100 == 0:
-        wandb.log({"loss": loss, "mode": args.mode})
+        wandb.log({"loss": loss, "mode": args.mode, "game": game})
         model_path = f"{model_filename}.pth"
         model.save_model(model_path)
         wandb.save(model_path)
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     if args.agent == "neural":
         model = ChessNeuralAgent()
     elif args.agent == "MCTS":
-        model = ChessRLWithMCTS()
+        model = ChessAlphaZeroAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
     
