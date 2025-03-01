@@ -3,6 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 import datetime
 import names
+import numpy as np
+import random
+import os
+import chess
 
 def get_move_space_size():
     """Return the total size of the move space."""
@@ -33,3 +37,5 @@ def board_to_tensor(board):
     tensor[7] = torch.ones(8, 8) * len(board.move_stack) / 100.0
     
     return tensor.permute(0, 1, 2)
+
+

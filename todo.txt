@@ -1,15 +1,8 @@
 
 Check Kaggle Guidelines
-Add parser such that I could have an option to training on scratch / saved model, how many training should I do?
-Add evaluation metrics -- elo, eff, win rate
-When to terminate
 Check mlp GPU
-
-Implement baseline reinforcement learning models such as DQN, PPO, and A2C to serve as reference points for computational performance and chess-playing strength.
-Develop the methodology by detailing the design of a lightweight AlphaZero-inspired agent that combines a convolutional neural network (CNN) for policy estimation with Monte Carlo Tree Search (MCTS) to navigate the large chess action space.
-Plans in the methodology to research and adapt reinforcement learning techniques from other domains like Go and Atari, aiming to improve speed and memory efficiency without sacrificing playing ability.
-
-
+scalability of each player with respect to thinking time, measured on an Elo scale, relative to Stockfish or Elmo with 40ms thinking time -- Evaluation speed (positions/second)
+Strategic Test Suite 
 
 
 

@@ -8,11 +8,16 @@ import json
 import wandb
 from datetime import datetime
 
-from utils.chess_recorder import ChessVideoRecorder
-from utils.util import *
 from rl_agent.agent_neural import ChessNeuralAgent
 from rl_agent.agent_mcts import ChessAlphaZeroAgent
-from eval import run_evaluation, show_computational_metrics
+from rl_agent.agent_distill import ChessDistillationAgent
+from rl_agent.agent_light import ChessLightAgent
+from built_in_agent.agent_stockfish import ChessStockfishAgent
+
+
+from utils.chess_recorder import ChessVideoRecorder
+from utils.util import *
+from eval import run_evaluation, show_computational_metrics, evaluate_strategic_test_suite
 
 
 
@@ -166,6 +171,31 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
         if game % 10 == 0:
             save_model_metric(game, model, model_filename)
 
+def evaluate_model(model, competitor, num_games=50):
+    """Evaluate the model against a competitor agent in a series of games."""
+    # Get computational metrics from the model.
+    estimated_ram_mib, compressed_size_kib, cpu_freq = show_computational_metrics(model)
+
+    win_rate_against_best_model, draw_rate_against_best_model, loss_rate_against_best_model = run_evaluation(model, competitor, num_games=50)
+    win_rate_against_stockfish, draw_rate_against_stockfish, loss_rate_against_stockfish = run_evaluation(model, ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1), num_games=50)
+
+    sts_total, sts_percentage = evaluate_strategic_test_suite(model)
+    
+    # Log all evaluation and computational metrics.
+    wandb.log({
+        "win_rate_best_model": win_rate_against_best_model,
+        "draw_rate_best_model": draw_rate_against_best_model,
+        "loss_rate_best_model": loss_rate_against_best_model,
+        "win_rate_stockfish": win_rate_against_stockfish,
+        "draw_rate_stockfish": draw_rate_against_stockfish,
+        "loss_rate_stockfish": loss_rate_against_stockfish,
+        "estimated_ram_mib": estimated_ram_mib,
+        "compressed_size_kib": compressed_size_kib,
+        "cpu_freq": cpu_freq.current,
+        "strategic_test_suite_total": sts_total,
+        "strategic_test_suite_percentage": sts_percentage
+    })
+
 def save_model_metric(game, model, model_filename):
     loss = model.train_step()
     print(f"Game {game}, Loss: {loss}")
@@ -184,20 +214,7 @@ def save_model_metric(game, model, model_filename):
         best_model = ChessNeuralAgent()
         best_model.load_model(BEST_MODEL_PATH)
         best_model.eval()
-
-        # Get computational metrics from the model.
-        estimated_ram_mib, compressed_size_kib, cpu_freq = show_computational_metrics(model)
-
-        win_rate_best_model = run_evaluation(model, best_model, num_games=50)
-        
-        # Log all evaluation and computational metrics.
-        wandb.log({
-            "win_rate_best_model": win_rate_best_model,
-            "estimated_ram_mib": estimated_ram_mib,
-            "compressed_size_kib": compressed_size_kib,
-            "cpu_freq": cpu_freq.current
-        })
-
+        evaluate_model(model, best_model, num_games=50)
 
 
 if __name__ == "__main__":
@@ -214,9 +231,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["neural", "MCTS"],
+        choices=["neural", "mcts", "distill", "light"],
         default="neural",
-        help="Specify the training agent type. Currently supported: 'neural'."
+        help="Specify the training agent type. Currently supported: 'neural', 'mcts', 'distill'."
     )
     parser.add_argument(
         "--opponent",
@@ -260,8 +277,12 @@ if __name__ == "__main__":
     # Instantiate the training agent
     if args.agent == "neural":
         model = ChessNeuralAgent()
-    elif args.agent == "MCTS":
+    elif args.agent == "mcts":
         model = ChessAlphaZeroAgent()
+    elif args.agent == "distill":
+        model = ChessDistillationAgent(stockfish_path=stockfish_path)
+    elif args.agent == "light":
+        model = ChessLightAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
     
@@ -281,6 +302,5 @@ if __name__ == "__main__":
         if not args.opponent:
             raise ValueError("Competitive mode requires an opponent to be specified: 'stockfish'.")
         # Import the Stockfish agent
-        from built_in_agent.agent_stockfish import ChessStockfishAgent
         competitor = ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1)
         competitive_training(model, competitor, num_games=args.num_games)
