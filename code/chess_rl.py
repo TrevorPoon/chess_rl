@@ -93,7 +93,7 @@ def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every
             )
             value = -value  # Flip the value to reflect the opponent's perspective
         
-        if game % 10 == 0:
+        if game % 100 == 0:
             save_model_metric(game, model, model_filename)
 
 def competitive_training(model, competitor, num_games=1000000, moves_per_game=10000, viz_every=1000):
@@ -191,23 +191,19 @@ def save_model_metric(game, model, model_filename):
     loss = model.train_step()
     print(f"Game {game}, Loss: {loss}")
     gc.collect()
-    
-    # Log basic training metrics and checkpoint every 100 games.
-    if game % 100 == 0:
+        
+    # Every 1000 games, run a more expensive evaluation and log additional metrics.
+    if game % 1000 == 0 and game > 0:
         wandb.log({"loss": loss, "mode": args.mode, "game": game})
         model_path = f"{model_filename}.pth"
         model.save_model(model_path)
         wandb.save(model_path)
-    
-    # Every 1000 games, run a more expensive evaluation and log additional metrics.
-    if game % 1000 == 0:
         # Evaluate the model against Stockfish by comparing with the best saved model.
         global BEST_MODEL_PATH
         best_model = ChessNeuralAgent()
         best_model.load_model(BEST_MODEL_PATH)
         best_model.eval()
         evaluate_model(model, best_model, num_games=50)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
