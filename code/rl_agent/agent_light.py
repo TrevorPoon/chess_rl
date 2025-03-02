@@ -9,6 +9,9 @@ import os
 
 from utils.util import board_to_tensor, get_move_space_size
 
+# Optimize CPU utilization: use all available CPU cores.
+torch.set_num_threads(os.cpu_count())
+
 # --- Residual Block Definition ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, use_dropout=False, dropout_prob=0.3):
@@ -179,7 +182,7 @@ class ChessLightAgent:
         print("Model set to evaluation mode.")
 
     def select_move(self, board, temperature=1.0):
-        """Select a move using the current policy"""
+        """Select a move using the current policy."""
         state = board_to_tensor(board).unsqueeze(0).to(self.device)
         with torch.no_grad():
             policy, value = self.model(state)
@@ -201,51 +204,58 @@ class ChessLightAgent:
         move_idx = torch.multinomial(move_probs, 1).item()
         return legal_moves[move_idx]
 
-    def train_step(self, batch_size=32, beta=0.4):
-        """Perform one training step with prioritized replay and loss weighting."""
-        if len(self.replay_buffer) < batch_size:
+    def train_step(self, batch_size=32, beta=0.4, accumulation_steps=1):
+        """
+        Perform one training step with prioritized replay, loss weighting, and gradient accumulation.
+        The loss from each mini-batch is scaled by 1/accumulation_steps so that the overall gradient is comparable.
+        """
+        if len(self.replay_buffer) < batch_size * accumulation_steps:
             return None
 
-        # Sample a batch with importance sampling weights
-        indices, states, target_policies, target_values, weights = self.replay_buffer.sample(batch_size, beta=beta)
+        total_loss = 0.0
+        # Accumulate gradients over several mini-batches
+        for _ in range(accumulation_steps):
+            indices, states, target_policies, target_values, weights = self.replay_buffer.sample(batch_size, beta=beta)
 
-        pred_policies, pred_values = self.model(states)
-        # If necessary, pad the target policies to match prediction size
-        if pred_policies.size(1) > target_policies.size(1):
-            padding = torch.zeros(target_policies.size(0), 
-                                  pred_policies.size(1) - target_policies.size(1),
-                                  device=self.device)
-            target_policies = torch.cat([target_policies, padding], dim=1)
+            pred_policies, pred_values = self.model(states)
+            # If necessary, pad the target policies to match prediction size
+            if pred_policies.size(1) > target_policies.size(1):
+                padding = torch.zeros(target_policies.size(0), 
+                                      pred_policies.size(1) - target_policies.size(1),
+                                      device=self.device)
+                target_policies = torch.cat([target_policies, padding], dim=1)
 
-        # Compute per-sample losses
-        # Policy loss: negative log likelihood weighted per sample
-        log_preds = torch.log(pred_policies + 1e-8)
-        per_sample_policy_loss = -torch.sum(target_policies * log_preds, dim=1)
-        # Value loss: squared error per sample
-        per_sample_value_loss = (target_values.squeeze() - pred_values.squeeze()) ** 2
+            # Compute per-sample losses
+            log_preds = torch.log(pred_policies + 1e-8)
+            per_sample_policy_loss = -torch.sum(target_policies * log_preds, dim=1)
+            per_sample_value_loss = (target_values.squeeze() - pred_values.squeeze()) ** 2
 
-        # Combined loss per sample with loss weighting
-        per_sample_loss = (self.policy_loss_weight * per_sample_policy_loss +
-                           self.value_loss_weight * per_sample_value_loss)
+            per_sample_loss = (self.policy_loss_weight * per_sample_policy_loss +
+                               self.value_loss_weight * per_sample_value_loss)
+            # Average the loss and scale it for accumulation
+            loss = (per_sample_loss * weights).mean() / accumulation_steps
 
-        # Reweight using importance sampling weights and average the loss
-        weighted_loss = (per_sample_loss * weights).mean()
+            # Backpropagate without updating parameters yet
+            loss.backward()
 
-        self.optimizer.zero_grad()
-        weighted_loss.backward()
+            # Update replay buffer priorities for this mini-batch
+            new_priorities = (per_sample_loss.detach().cpu().numpy() + 1e-6).tolist()
+            self.replay_buffer.update_priorities(indices, new_priorities)
+
+            # Accumulate the unscaled loss for logging purposes
+            total_loss += loss.item() * accumulation_steps
+
+        # Perform the optimizer step after accumulating gradients
         self.optimizer.step()
+        self.optimizer.zero_grad()
 
-        # Update learning rate scheduler
-        self.scheduler.step(weighted_loss.item())
+        # Update learning rate scheduler based on the total loss from accumulated steps
+        self.scheduler.step(total_loss)
 
-        # Update priorities with new loss values (plus a small constant to avoid zero)
-        new_priorities = (per_sample_loss.detach().cpu().numpy() + 1e-6).tolist()
-        self.replay_buffer.update_priorities(indices, new_priorities)
-
-        return weighted_loss.item()
+        return total_loss
 
     def save_model(self, model_name="chess_model.pth"):
-        """Save the model to the 'model' directory in the parent directory"""
+        """Save the model to the 'model' directory in the parent directory."""
         model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'model')
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
