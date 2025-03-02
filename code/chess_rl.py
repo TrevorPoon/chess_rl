@@ -7,6 +7,7 @@ import os
 import json
 import wandb
 from datetime import datetime
+import gc
 
 from rl_agent.agent_neural import ChessNeuralAgent
 from rl_agent.agent_mcts import ChessAlphaZeroAgent
@@ -175,30 +176,21 @@ def evaluate_model(model, competitor, num_games=50):
     """Evaluate the model against a competitor agent in a series of games."""
     # Get computational metrics from the model.
     estimated_ram_mib, compressed_size_kib, cpu_freq = show_computational_metrics(model)
+    wandb.log({"estimated_ram_mib": estimated_ram_mib, "compressed_size_kib": compressed_size_kib, "cpu_freq": cpu_freq.current})
 
     win_rate_against_best_model, draw_rate_against_best_model, loss_rate_against_best_model = run_evaluation(model, competitor, num_games=50)
-    win_rate_against_stockfish, draw_rate_against_stockfish, loss_rate_against_stockfish = run_evaluation(model, ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1), num_games=50)
+    wandb.log({"win_rate_best_model": win_rate_against_best_model, "draw_rate_best_model": draw_rate_against_best_model, "loss_rate_best_model": loss_rate_against_best_model})
 
-    sts_total, sts_percentage = evaluate_strategic_test_suite(model)
+    # win_rate_against_stockfish, draw_rate_against_stockfish, loss_rate_against_stockfish = run_evaluation(model, ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1), num_games=50)
+    # wandb.log({"win_rate_stockfish": win_rate_against_stockfish, "draw_rate_stockfish": draw_rate_against_stockfish, "loss_rate_stockfish": loss_rate_against_stockfish})
     
-    # Log all evaluation and computational metrics.
-    wandb.log({
-        "win_rate_best_model": win_rate_against_best_model,
-        "draw_rate_best_model": draw_rate_against_best_model,
-        "loss_rate_best_model": loss_rate_against_best_model,
-        "win_rate_stockfish": win_rate_against_stockfish,
-        "draw_rate_stockfish": draw_rate_against_stockfish,
-        "loss_rate_stockfish": loss_rate_against_stockfish,
-        "estimated_ram_mib": estimated_ram_mib,
-        "compressed_size_kib": compressed_size_kib,
-        "cpu_freq": cpu_freq.current,
-        "strategic_test_suite_total": sts_total,
-        "strategic_test_suite_percentage": sts_percentage
-    })
-
+    sts_total, sts_percentage = evaluate_strategic_test_suite(model)
+    wandb.log({"strategic_test_suite_total": sts_total, "strategic_test_suite_percentage": sts_percentage})
+    
 def save_model_metric(game, model, model_filename):
     loss = model.train_step()
     print(f"Game {game}, Loss: {loss}")
+    gc.collect()
     
     # Log basic training metrics and checkpoint every 100 games.
     if game % 100 == 0:
@@ -231,9 +223,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["neural", "mcts", "distill", "light"],
+        choices=["neural", "mcts", "distill", "light", "giraffe"],
         default="neural",
-        help="Specify the training agent type. Currently supported: 'neural', 'mcts', 'distill'."
+        help="Specify the training agent type. Currently supported: 'neural', 'mcts', 'distill', 'light', 'giraffe'."
     )
     parser.add_argument(
         "--opponent",
@@ -283,6 +275,8 @@ if __name__ == "__main__":
         model = ChessDistillationAgent(stockfish_path=stockfish_path)
     elif args.agent == "light":
         model = ChessLightAgent()
+    elif args.agent == "giraffe":
+        model = GiraffeNeuralAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
     
