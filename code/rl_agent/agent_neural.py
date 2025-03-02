@@ -55,6 +55,9 @@ class ChessNeuralAgent:
         self.model = ChessNet().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters())
         self.replay_buffer = ReplayBuffer()
+    
+    def board_to_vector(self, board):
+        return board_to_tensor(board)
 
     def load_model(self, model_path):
         """Load the model parameters from a checkpoint file."""
@@ -107,7 +110,7 @@ class ChessNeuralAgent:
 
     def select_move(self, board, temperature=1.0):
         """Select a move using the current policy"""
-        state = board_to_tensor(board).unsqueeze(0).to(self.device)
+        state = self.board_to_vector(board).unsqueeze(0).to(self.device)
         with torch.no_grad():
             policy, value = self.model(state)
         

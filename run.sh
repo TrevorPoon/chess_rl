@@ -1,1 +1,1 @@
-python code/chess_rl.py --mode self-play --agent light
+python code/chess_rl.py --mode self-play --agent giraffe

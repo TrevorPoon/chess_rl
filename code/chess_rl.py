@@ -13,7 +13,10 @@ from rl_agent.agent_neural import ChessNeuralAgent
 from rl_agent.agent_mcts import ChessAlphaZeroAgent
 from rl_agent.agent_distill import ChessDistillationAgent
 from rl_agent.agent_light import ChessLightAgent
+from rl_agent.agent_giraffe import GiraffeChessAgent
+
 from built_in_agent.agent_stockfish import ChessStockfishAgent
+from built_in_agent.agent_random import ChessRandomAgent
 
 
 from utils.chess_recorder import ChessVideoRecorder
@@ -22,17 +25,27 @@ from eval import run_evaluation, show_computational_metrics, evaluate_strategic_
 
 
 
-
+# Move limit configuration
+INITIAL_MOVE_LIMIT = 80
+MAX_MOVE_LIMIT = 500
+MOVE_LIMIT_INCREMENT = 20
+GAMES_PER_INCREMENT = 1000  # Increase move limit every 500 games
 BEST_MODEL_PATH = "model_best/Self-play_20250223_193946_neural_fanciful-mountain-17.pth"
 
-def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every=1000):
+def self_play_training(model, num_games=10000000, viz_every=1000):
     """Train the model through self-play with video recording."""
     recorder = ChessVideoRecorder()
 
     # Use the updated wandb.run.name (random name with timestamp appended)
     model_filename = wandb.run.name
+
+    move_limit = INITIAL_MOVE_LIMIT
     
     for game in range(num_games):
+
+        if (game+1) % GAMES_PER_INCREMENT == 0 and move_limit < MAX_MOVE_LIMIT:
+            move_limit = min(move_limit + MOVE_LIMIT_INCREMENT, MAX_MOVE_LIMIT)
+
         board = chess.Board()
         game_states = []
         should_record = args.record and (game % viz_every == 0)
@@ -41,12 +54,13 @@ def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every
             recorder.start_game(game)
             recorder.save_frame(board)
         
-        for move_num in range(moves_per_game):
+        for move_num in range(move_limit):
+
             if board.is_game_over():
                 break
             
             # Store current state
-            state = board_to_tensor(board)
+            state = model.board_to_vector(board)
             
             # Select and make move using the training model
             temperature = max(1.0 - move_num / 30, 0.1)
@@ -96,7 +110,7 @@ def self_play_training(model, num_games=1000000, moves_per_game=10000, viz_every
         if game % 100 == 0:
             save_model_metric(game, model, model_filename)
 
-def competitive_training(model, competitor, num_games=1000000, moves_per_game=10000, viz_every=1000):
+def competitive_training(model, competitor, num_games=10000000, viz_every=1000):
     """
     Train the model by playing competitive matches against Stockfish.
     In this setup the training agent always plays as White (i.e. board.turn == True),
@@ -106,8 +120,14 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
     
     # Use the updated wandb.run.name (random name with timestamp appended)
     model_filename = wandb.run.name
+
+    move_limit = INITIAL_MOVE_LIMIT
     
     for game in range(num_games):
+
+        if (game+1) % GAMES_PER_INCREMENT == 0 and move_limit < MAX_MOVE_LIMIT:
+            move_limit = min(move_limit + MOVE_LIMIT_INCREMENT, MAX_MOVE_LIMIT)
+
         board = chess.Board()
         # Record only the states when the training model (White) makes a move.
         model_states = []
@@ -117,12 +137,12 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
             recorder.start_game(game)
             recorder.save_frame(board)
         
-        for move_num in range(moves_per_game):
+        for move_num in range(move_limit):
             if board.is_game_over():
                 break
             
             # Get current state (for potential training)
-            state = board_to_tensor(board)
+            state = model.board_to_vector(board)
             
             if board.turn:  # Training agent's turn (White)
                 temperature = max(1.0 - move_num / 30, 0.1)
@@ -172,29 +192,32 @@ def competitive_training(model, competitor, num_games=1000000, moves_per_game=10
         if game % 10 == 0:
             save_model_metric(game, model, model_filename)
 
-def evaluate_model(model, competitor, num_games=50):
+def evaluate_model(model, game, competitor, num_games=50):
     """Evaluate the model against a competitor agent in a series of games."""
     # Get computational metrics from the model.
     estimated_ram_mib, compressed_size_kib, cpu_freq = show_computational_metrics(model)
-    wandb.log({"estimated_ram_mib": estimated_ram_mib, "compressed_size_kib": compressed_size_kib, "cpu_freq": cpu_freq.current})
+    wandb.log({"estimated_ram_mib": estimated_ram_mib, "compressed_size_kib": compressed_size_kib, "cpu_freq": cpu_freq.current}, step=game)
 
     # win_rate_against_best_model, draw_rate_against_best_model, loss_rate_against_best_model = run_evaluation(model, competitor, num_games=50)
-    # wandb.log({"win_rate_best_model": win_rate_against_best_model, "draw_rate_best_model": draw_rate_against_best_model, "loss_rate_best_model": loss_rate_against_best_model})
+    # wandb.log({"win_rate_best_model": win_rate_against_best_model, "draw_rate_best_model": draw_rate_against_best_model, "loss_rate_best_model": loss_rate_against_best_model}, step=game)
 
     # win_rate_against_stockfish, draw_rate_against_stockfish, loss_rate_against_stockfish = run_evaluation(model, ChessStockfishAgent(engine_path=stockfish_path, time_limit=0.1), num_games=50)
-    # wandb.log({"win_rate_stockfish": win_rate_against_stockfish, "draw_rate_stockfish": draw_rate_against_stockfish, "loss_rate_stockfish": loss_rate_against_stockfish})
+    # wandb.log({"win_rate_stockfish": win_rate_against_stockfish, "draw_rate_stockfish": draw_rate_against_stockfish, "loss_rate_stockfish": loss_rate_against_stockfish}, step=game)
+
+    win_rate_against_random, draw_rate_against_random, loss_rate_against_random = run_evaluation(model, ChessRandomAgent(), num_games=50)
+    wandb.log({"win_rate_random": win_rate_against_random, "draw_rate_random": draw_rate_against_random, "loss_rate_random": loss_rate_against_random}, step=game)
     
     sts_total, sts_percentage = evaluate_strategic_test_suite(model)
-    wandb.log({"strategic_test_suite_total": sts_total, "strategic_test_suite_percentage": sts_percentage})
+    wandb.log({"strategic_test_suite_total": sts_total, "strategic_test_suite_percentage": sts_percentage}, step=game)
     
 def save_model_metric(game, model, model_filename):
     loss = model.train_step()
     print(f"Game {game}, Loss: {loss}")
     gc.collect()
+    wandb.log({"loss": loss}, step=game)
         
     # Every 1000 games, run a more expensive evaluation and log additional metrics.
     if game % 1000 == 0 and game > 0:
-        wandb.log({"loss": loss, "mode": args.mode, "game": game})
         model_path = f"{model_filename}.pth"
         model.save_model(model_path)
         wandb.save(model_path)
@@ -203,7 +226,7 @@ def save_model_metric(game, model, model_filename):
         best_model = ChessNeuralAgent()
         best_model.load_model(BEST_MODEL_PATH)
         best_model.eval()
-        evaluate_model(model, best_model, num_games=50)
+        evaluate_model(model, game, best_model, num_games=50)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -272,16 +295,18 @@ if __name__ == "__main__":
     elif args.agent == "light":
         model = ChessLightAgent()
     elif args.agent == "giraffe":
-        model = GiraffeNeuralAgent()
+        model = GiraffeChessAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
     
     # Initialize wandb without specifying a name so it generates one automatically.
     run = wandb.init(
         project="chess_rl",
-        config=config,
-        notes=args.notes
-    )
+        notes=args.notes, 
+        config={
+            "mode": args.mode,
+            "agent": args.agent
+        })
     # Append current time to the randomly generated wandb run name.
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run.name = f"{args.mode.capitalize()}_{timestamp}_{args.agent}_{run.name}"
