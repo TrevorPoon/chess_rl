@@ -16,7 +16,7 @@ class ChessRandomAgent:
         :return: A chess.Move object representing a randomly chosen legal move.
         """
         legal_moves = list(board.legal_moves)
-        return random.choice(legal_moves)
+        return random.choice(legal_moves), None
 
     def quit(self):
         """

@@ -9,6 +9,7 @@ import wandb
 from datetime import datetime
 import gc
 
+
 from rl_agent.agent_neural import ChessNeuralAgent
 from rl_agent.agent_mcts import ChessAlphaZeroAgent
 from rl_agent.agent_distill import ChessDistillationAgent
@@ -22,6 +23,7 @@ from built_in_agent.agent_random import ChessRandomAgent
 from utils.chess_recorder import ChessVideoRecorder
 from utils.util import *
 from eval import run_evaluation, show_computational_metrics, evaluate_strategic_test_suite
+from sl import build_dataset_from_pgn, supervised_training
 
 
 
@@ -29,7 +31,7 @@ from eval import run_evaluation, show_computational_metrics, evaluate_strategic_
 INITIAL_MOVE_LIMIT = 80
 MAX_MOVE_LIMIT = 500
 MOVE_LIMIT_INCREMENT = 20
-GAMES_PER_INCREMENT = 1000  # Increase move limit every 500 games
+GAMES_PER_INCREMENT = 10000  # Increase move limit every 500 games
 BEST_MODEL_PATH = "model_best/Self-play_20250223_193946_neural_fanciful-mountain-17.pth"
 
 def self_play_training(model, num_games=10000000, viz_every=1000):
@@ -64,7 +66,7 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
             
             # Select and make move using the training model
             temperature = max(1.0 - move_num / 30, 0.1)
-            move = model.select_move(board, temperature)
+            move, move_probs = model.select_move(board, temperature)
             board.push(move)
             
             # Store state and move
@@ -109,6 +111,7 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
         
         if game % 100 == 0:
             save_model_metric(game, model, model_filename)
+            wandb.log({"move_limit": move_limit}, step=game)
 
 def competitive_training(model, competitor, num_games=10000000, viz_every=1000):
     """
@@ -229,6 +232,7 @@ def save_model_metric(game, model, model_filename):
         evaluate_model(model, game, best_model, num_games=50)
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(
         description="Run training for a chess agent in self-play or competitive mode."
     )
@@ -310,6 +314,12 @@ if __name__ == "__main__":
     # Append current time to the randomly generated wandb run name.
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run.name = f"{args.mode.capitalize()}_{timestamp}_{args.agent}_{run.name}"
+
+    # Supervised Learning
+    print("Reading PGN file and building the training dataset...")
+    dataset = build_dataset_from_pgn(model)
+    print(f"Total training examples: {len(dataset)}")
+    supervised_training(model, dataset, args.epochs, args.batch_size)
     
     if args.mode == "self-play":
         self_play_training(model, num_games=args.num_games)

@@ -20,6 +20,7 @@ from utils.util import board_to_tensor, get_move_space_size
 
 # Import the Stockfish agent for evaluation.
 from built_in_agent.agent_stockfish import ChessStockfishAgent
+from rl_agent.agent_giraffe import GiraffeChessAgent
 
 # ---------------------------------------------------------------------------
 # Game evaluation functions
@@ -38,9 +39,9 @@ def evaluate_game(rl_agent, competitor):
     
     while not board.is_game_over():
         if board.turn == rl_agent_is_white:
-            move = rl_agent.select_move(board, temperature=0)
+            move, _ = rl_agent.select_move(board, temperature=0)
         else:
-            move = competitor.select_move(board)
+            move, _ = competitor.select_move(board)
         board.push(move)
     
     result_str = board.result()  # e.g., "1-0", "0-1", or "1/2-1/2"
@@ -188,7 +189,7 @@ def read_epd_file(epd_path: str) -> List[Dict[str, object]]:
     return test_cases
 
 
-def evaluate_strategic_test_suite(rl_agent, epd_file_path="STS1-STS15_LAN_v3.epd"):
+def evaluate_strategic_test_suite(rl_agent, epd_file_path="data/STS1-STS15_LAN_v3.epd"):
     """
     Evaluate the neural agent's performance on a Strategic Test Suite (STS) loaded from an EPD file.
     
@@ -219,7 +220,7 @@ def evaluate_strategic_test_suite(rl_agent, epd_file_path="STS1-STS15_LAN_v3.epd
         board = chess.Board(fen)
         
         try:
-            selected_move = rl_agent.select_move(board, temperature=0)
+            selected_move, _ = rl_agent.select_move(board, temperature=0)
         except Exception as e:
             logging.error("Error selecting move for test case %d: %s", idx, str(e))
             continue
@@ -263,7 +264,7 @@ def main():
     parser.add_argument("--competitor_model_path", type=str, default=get_best_model("model_best"),
                         help="Path to the competitor's neural model checkpoint. If provided, it is used as competitor; otherwise, Stockfish is used.")
     # STS evaluation argument (required)
-    parser.add_argument("--sts-epd-file", type=str, required=False, default="STS1-STS15_LAN_v3.epd",
+    parser.add_argument("--sts-epd-file", type=str, required=False, default="data/STS1-STS15_LAN_v3.epd",
                         help="Path to the EPD file containing STS positions.")
     
     args = parser.parse_args()
@@ -278,6 +279,7 @@ def main():
 
     # Instantiate the neural agent and load its checkpoint.
     rl_agent = ChessNeuralAgent()
+    rl_agent = GiraffeChessAgent()
     rl_agent.load_model(args.model_path)
     rl_agent.eval()  # Set model to evaluation mode
 

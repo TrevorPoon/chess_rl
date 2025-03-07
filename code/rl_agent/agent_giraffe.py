@@ -7,13 +7,22 @@ from collections import deque
 import random
 import os
 
-# You must implement these functions in utils/util.py
+# You must implement these functions in utils/util.py:
 # board_to_feature_vector(board) should convert a chess.Board to a flat vector (e.g. of length 363)
 # get_feature_vector_size() should return the size of that vector
 # get_move_space_size() should return the total number of indices in your move representation (e.g. 4096 + 2048)
 from utils.util import board_to_feature_vector, get_feature_vector_size, get_move_space_size
 
 torch.set_num_threads(os.cpu_count())
+
+# Reward shaping helper: compute material balance from White's perspective.
+def material_score(board):
+    values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+    score = 0
+    for piece_type, value in values.items():
+        score += len(board.pieces(piece_type, chess.WHITE)) * value
+        score -= len(board.pieces(piece_type, chess.BLACK)) * value
+    return score
 
 class GiraffeNet(nn.Module):
     def __init__(self):
@@ -38,13 +47,19 @@ class ReplayBuffer:
         self.buffer = deque(maxlen=capacity)
     
     def push(self, state, policy, value):
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, dtype=torch.float32)
+        # Convert policy to tensor if needed
+        if not isinstance(policy, torch.Tensor):
+            policy = torch.tensor(policy, dtype=torch.float32)
+        # Ensure value is a tensor
+        if not isinstance(value, torch.Tensor):
+            value = torch.tensor(value, dtype=torch.float32)
         self.buffer.append((state, policy, value))
-    
+        
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
         states, policies, values = zip(*batch)
-        # Convert each state from numpy array to torch tensor if necessary
-        states = [torch.tensor(state, dtype=torch.float32) if not isinstance(state, torch.Tensor) else state for state in states]
         return (torch.stack(states).to('cpu'),
                 torch.stack(policies).to('cpu'),
                 torch.stack(values).to('cpu'))
@@ -54,10 +69,12 @@ class ReplayBuffer:
 
 class GiraffeChessAgent:
     def __init__(self):
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = GiraffeNet().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters())
         self.replay_buffer = ReplayBuffer()
+        self.gamma = 0.99  # discount factor for bootstrapping rewards
+        self.loss_penalty = 1.5  # extra penalty factor for moves that lose material
     
     def board_to_vector(self, board):
         return board_to_feature_vector(board)
@@ -129,73 +146,120 @@ class GiraffeChessAgent:
 
         # Extract legal moves and initialize probability tensor.
         legal_moves = list(board.legal_moves)
-        move_probs = torch.zeros(len(legal_moves), dtype=torch.float32).to(self.device)
+        # Precompute move indices for legal moves
+        move_indices = [self.move_to_index(move) for move in legal_moves]
+        move_indices = [index if index < policy[0].size(0) else 0 for index in move_indices]
+        move_indices_tensor = torch.tensor(move_indices, dtype=torch.long, device=self.device)
 
-        # Map each legal move to its corresponding policy probability.
-        for i, move in enumerate(legal_moves):
-            move_idx = self.move_to_index(move)
-            if move_idx < policy[0].size(0):
-                move_probs[i] = policy[0][move_idx]
-            else:
-                # Assign a small probability if the index is out-of-range.
-                move_probs[i] = 1e-8
+        # Gather corresponding probabilities from the model's output
+        move_probs = policy[0].index_select(0, move_indices_tensor)
 
         # Ensure all probabilities are non-negative.
         move_probs = torch.clamp(move_probs, min=0)
 
-        # Apply temperature scaling.
-        # We add a tiny epsilon to the temperature to avoid division by zero.
-        temp = temperature + 1e-10
-        move_probs = move_probs ** (1.0 / temp)
+        # Temperature scaling
+        move_probs = move_probs ** (1.0 / (temperature + 1e-10))
 
-        # Normalize the probabilities, guarding against a zero sum.
-        total = move_probs.sum()
-        if total.item() == 0:
-            move_probs = torch.ones_like(move_probs) / len(legal_moves)
-        else:
-            move_probs /= total
-
-        # Add Dirichlet noise for exploration.
+        # Apply Dirichlet noise if needed
         if noise_weight > 0:
-            noise = np.random.dirichlet([0.03] * len(legal_moves))
-            noise_tensor = torch.tensor(noise, dtype=torch.float32).to(self.device)
-            move_probs = (1 - noise_weight) * move_probs + noise_weight * noise_tensor
-            
-            # Re-normalize to ensure it sums to 1.
-            total = move_probs.sum()
-            if total.item() == 0:
-                move_probs = torch.ones_like(move_probs) / len(legal_moves)
-            else:
-                move_probs /= total
+            noise = torch.tensor(np.random.dirichlet([0.03] * len(legal_moves)), 
+                                dtype=torch.float32, device=self.device)
+            move_probs = (1 - noise_weight) * move_probs + noise_weight * noise
+
+        # Normalize the probabilities once at the end
+        move_probs = move_probs / (move_probs.sum() + 1e-8)
 
         # Select a move based on the resulting probability distribution.
         chosen_index = torch.multinomial(move_probs, 1).item()
-        return legal_moves[chosen_index]
+        return legal_moves[chosen_index], move_probs.cpu().numpy()
     
+    def self_play_episode(self):
+        """
+        Run a self-play episode and apply reward shaping.
+        At each move, the reward is the change in material (as a simple shaping signal) with an extra penalty for losing pieces.
+        At the end, the game outcome (win/loss/draw) is used as a terminal reward and bootstrapped back over the moves.
+        The episode transitions are stored in the replay buffer.
+        """
+        board = chess.Board()
+        game_history = []
+        # Initial material score (from White's perspective)
+        prev_score = material_score(board)
+        
+        while not board.is_game_over():
+            # Save state before move
+            state = self.board_to_vector(board)
+            move, move_probs = self.select_move(board)
+            board.push(move)
+            # Compute immediate reward as the change in material balance (from White's perspective)
+            current_score = material_score(board)
+            immediate_reward = current_score - prev_score
+
+            # If material was lost, apply extra penalty
+            if immediate_reward < 0:
+                immediate_reward *= self.loss_penalty
+
+            prev_score = current_score
+            game_history.append((state, move_probs, immediate_reward))
+        
+        # Terminal reward from game outcome
+        result = board.result()
+        if result == "1-0":
+            terminal_reward = 1.0
+        elif result == "0-1":
+            terminal_reward = -1.0
+        else:
+            terminal_reward = 0.0
+
+        # Bootstrapping: compute the return for each move (discounted sum of future rewards)
+        G = terminal_reward
+        returns = []
+        # Reverse through the game history to compute cumulative returns
+        for _, _, reward in reversed(game_history):
+            G = reward + self.gamma * G
+            returns.insert(0, G)
+
+        # Store transitions in replay buffer. Here, the move_probs are used as the policy target,
+        # and the return is used as the value target.
+        for (state, move_probs, _), G in zip(game_history, returns):
+            self.replay_buffer.push(state, move_probs, G)
+        
+        return board.result()  # Return game result for logging if desired
+
     def train_step(self, batch_size=32):
-        """Perform one training step using a mini-batch from the replay buffer."""
         if len(self.replay_buffer) < batch_size:
             return
-        
+
+        self.optimizer.zero_grad()
         states, policies, values = self.replay_buffer.sample(batch_size)
         
-        pred_policies, pred_values = self.model(states)
-        
-        # Pad the target policy vector if needed
-        if pred_policies.size(1) > policies.size(1):
-            padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
-            policies = torch.cat([policies, padding], dim=1)
-        
-        policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
-        value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
-        total_loss = policy_loss + value_loss
-        
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
+        # Use mixed precision if on GPU
+        use_amp = self.device.type == 'cuda'
+        if use_amp:
+            scaler = torch.cuda.amp.GradScaler()
+            with torch.cuda.amp.autocast():
+                pred_policies, pred_values = self.model(states)
+                if pred_policies.size(1) > policies.size(1):
+                    padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
+                    policies = torch.cat([policies, padding], dim=1)
+                policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
+                value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
+                total_loss = policy_loss + value_loss
+            scaler.scale(total_loss).backward()
+            scaler.step(self.optimizer)
+            scaler.update()
+        else:
+            pred_policies, pred_values = self.model(states)
+            if pred_policies.size(1) > policies.size(1):
+                padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
+                policies = torch.cat([policies, padding], dim=1)
+            policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
+            value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
+            total_loss = policy_loss + value_loss
+            total_loss.backward()
+            self.optimizer.step()
         
         return total_loss.item()
-    
+
     def save_model(self, model_name="giraffe_chess_model.pth"):
         """
         Save the model state to a file in a 'model' directory in the parent directory.
@@ -207,11 +271,34 @@ class GiraffeChessAgent:
         torch.save(self.model.state_dict(), save_path)
         print(f"Model saved to '{save_path}'")
 
+    def self_play_training(self, episodes=1000, train_steps_per_episode=10, batch_size=32):
+        """
+        Run self-play episodes and train the network.
+        For every episode, self-play is used to generate game data with shaped rewards.
+        After each episode, several training steps are performed.
+        """
+        for ep in range(1, episodes + 1):
+            result = self.self_play_episode()
+            # Run training steps using data collected in the episode
+            losses = []
+            for _ in range(train_steps_per_episode):
+                loss = self.train_step(batch_size)
+                if loss is not None:
+                    losses.append(loss)
+            avg_loss = np.mean(losses) if losses else 0
+            print(f"Episode {ep}/{episodes} | Result: {result} | Avg Loss: {avg_loss:.4f}")
+
 if __name__ == "__main__":
     # Example usage:
     agent = GiraffeChessAgent()
+    
+    # Optionally, run self-play training
+    print("Starting self-play training...")
+    agent.self_play_training(episodes=10, train_steps_per_episode=5, batch_size=32)
+    
+    # Example of loading a model and selecting a move
     board = chess.Board()
     print("Initial board:")
     print(board)
-    selected_move = agent.select_move(board)
+    selected_move, move_probs = agent.select_move(board)
     print("Selected move:", selected_move)

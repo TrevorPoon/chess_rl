@@ -20,7 +20,7 @@ class ChessStockfishAgent:
         :return: A chess.Move object representing the move chosen by Stockfish.
         """
         result = self.engine.play(board, chess.engine.Limit(time=self.time_limit))
-        return result.move
+        return result.move, None 
 
     def quit(self):
         """

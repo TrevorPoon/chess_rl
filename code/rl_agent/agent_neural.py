@@ -9,6 +9,8 @@ import os
 
 from utils.util import board_to_tensor, get_move_space_size
 
+torch.set_num_threads(os.cpu_count())
+
 class ChessNet(nn.Module):
     def __init__(self):
         super(ChessNet, self).__init__()
@@ -108,21 +110,27 @@ class ChessNeuralAgent:
         self.model.eval()
         print("Model set to evaluation mode.")
 
-    def select_move(self, board, temperature=1.0):
-        """Select a move using the current policy"""
+    def select_move(self, board, temperature=1.0, noise_weight=0.25):
+        """Select a move using the current policy with optional Dirichlet noise for exploration."""
         state = self.board_to_vector(board).unsqueeze(0).to(self.device)
         with torch.no_grad():
             policy, value = self.model(state)
         
         legal_moves = list(board.legal_moves)
-        move_probs = torch.zeros(len(legal_moves))
+        move_probs = torch.zeros(len(legal_moves), device=self.device)
         
         for i, move in enumerate(legal_moves):
             move_idx = self.move_to_index(move)
             if move_idx < policy[0].size(0):
                 move_probs[i] = policy[0][move_idx]
         
-        # Apply temperature and handle zero probabilities
+        # Apply Dirichlet noise if needed
+        if noise_weight > 0:
+            noise = torch.tensor(np.random.dirichlet([0.03] * len(legal_moves)), 
+                                dtype=torch.float32, device=self.device)
+            move_probs = (1 - noise_weight) * move_probs + noise_weight * noise
+        
+        # Apply temperature scaling and renormalize
         move_probs = move_probs ** (1/(temperature + 1e-10))
         if move_probs.sum() > 0:
             move_probs /= move_probs.sum()
@@ -130,7 +138,8 @@ class ChessNeuralAgent:
             move_probs = torch.ones_like(move_probs) / len(move_probs)
         
         move_idx = torch.multinomial(move_probs, 1).item()
-        return legal_moves[move_idx]
+        return legal_moves[move_idx], move_probs
+
     
     def train_step(self, batch_size=32):
         """Perform one training step"""
