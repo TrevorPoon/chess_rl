@@ -97,7 +97,7 @@ def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_201801_standard2000
 # Supervised Training Code  #
 #############################
 
-def supervised_training(model, dataset, epochs, batch_size):
+def supervised_training(model, dataset, epochs=4, batch_size=32):
     """
     Performs supervised training on the provided dataset.
     The dataset is a list of tuples: (state, policy target, value target).

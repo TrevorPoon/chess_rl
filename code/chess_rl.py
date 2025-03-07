@@ -319,7 +319,7 @@ if __name__ == "__main__":
     print("Reading PGN file and building the training dataset...")
     dataset = build_dataset_from_pgn(model)
     print(f"Total training examples: {len(dataset)}")
-    supervised_training(model, dataset, args.epochs, args.batch_size)
+    supervised_training(model, dataset)
     
     if args.mode == "self-play":
         self_play_training(model, num_games=args.num_games)
