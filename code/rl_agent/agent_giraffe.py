@@ -115,6 +115,11 @@ class GiraffeChessAgent:
             index = 0
             
         return index
+    
+    def train(self):
+        """Set the model to training mode."""
+        self.model.train()
+        print("Model set to training mode.")
 
     def eval(self):
         """Set the model to evaluation mode."""
