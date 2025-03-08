@@ -3,7 +3,7 @@ Check Kaggle Guidelines
 Check mlp GPU
 scalability of each player with respect to thinking time, measured on an Elo scale, relative to Stockfish or Elmo with 40ms thinking time -- Evaluation speed (positions/second)
 Strategic Test Suite 
-
+Potential Reward
 
 
 

@@ -119,12 +119,10 @@ class GiraffeChessAgent:
     def train(self):
         """Set the model to training mode."""
         self.model.train()
-        print("Model set to training mode.")
 
     def eval(self):
         """Set the model to evaluation mode."""
         self.model.eval()
-        print("Model set to evaluation mode.")
 
     def select_move(self, board, temperature=1.0, noise_weight=0.25):
         """
@@ -169,51 +167,6 @@ class GiraffeChessAgent:
         # Select a move based on the resulting probability distribution.
         chosen_index = torch.multinomial(move_probs, 1).item()
         return legal_moves[chosen_index], move_probs.cpu().numpy()
-    
-    def self_play_episode(self):
-        """
-        Run a self-play episode without reward shaping from material score.
-        Each move is assigned an immediate reward of 0, and only the terminal reward (win/loss/draw)
-        is bootstrapped back over the moves.
-        The episode transitions are stored in the replay buffer.
-        """
-        board = chess.Board()
-        game_history = []
-        
-        while not board.is_game_over():
-            # Save state before move
-            state = self.board_to_vector(board)
-            move, move_probs = self.select_move(board)
-            board.push(move)
-            
-            # Immediate reward is set to 0 for all moves
-            immediate_reward = 0.0
-            
-            game_history.append((state, move_probs, immediate_reward))
-        
-        # Terminal reward from game outcome
-        result = board.result()
-        if result == "1-0":
-            terminal_reward = 1.0
-        elif result == "0-1":
-            terminal_reward = -1.0
-        else:
-            terminal_reward = 0.0
-
-        # Bootstrapping: compute the return for each move (discounted sum of future rewards)
-        G = terminal_reward
-        returns = []
-        # Reverse through the game history to compute cumulative returns
-        for _, _, reward in reversed(game_history):
-            G = reward + self.gamma * G
-            returns.insert(0, G)
-
-        # Store transitions in replay buffer. Here, the move_probs are used as the policy target,
-        # and the return is used as the value target.
-        for (state, move_probs, _), G in zip(game_history, returns):
-            self.replay_buffer.push(state, move_probs, G)
-        
-        return board.result()  # Return game result for logging if desired
 
 
     def train_step(self, batch_size=32):
@@ -223,8 +176,13 @@ class GiraffeChessAgent:
 
         self.optimizer.zero_grad()
         states, policies, values = self.replay_buffer.sample(batch_size)
+
+        total_loss = self.minimise_loss(states, policies, values, batch_size)
+
+        total_loss.backward()
+        self.optimizer.step()
         
-        return self.minimise_loss(states, policies, values, batch_size)
+        return total_loss.item()
 
     def minimise_loss(self, states, policies, values, batch_size=32):
                 # Use mixed precision if on GPU
@@ -250,10 +208,8 @@ class GiraffeChessAgent:
             policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
             value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
             total_loss = policy_loss + value_loss
-            total_loss.backward()
-            self.optimizer.step()
         
-        return total_loss.item()
+        return total_loss
 
 
     def save_model(self, model_name="giraffe_chess_model.pth"):
@@ -267,34 +223,4 @@ class GiraffeChessAgent:
         torch.save(self.model.state_dict(), save_path)
         print(f"Model saved to '{save_path}'")
 
-    def self_play_training(self, episodes=1000, train_steps_per_episode=10, batch_size=32):
-        """
-        Run self-play episodes and train the network.
-        For every episode, self-play is used to generate game data with shaped rewards.
-        After each episode, several training steps are performed.
-        """
-        for ep in range(1, episodes + 1):
-            result = self.self_play_episode()
-            # Run training steps using data collected in the episode
-            losses = []
-            for _ in range(train_steps_per_episode):
-                loss = self.train_step(batch_size)
-                if loss is not None:
-                    losses.append(loss)
-            avg_loss = np.mean(losses) if losses else 0
-            print(f"Episode {ep}/{episodes} | Result: {result} | Avg Loss: {avg_loss:.4f}")
 
-if __name__ == "__main__":
-    # Example usage:
-    agent = GiraffeChessAgent()
-    
-    # Optionally, run self-play training
-    print("Starting self-play training...")
-    agent.self_play_training(episodes=10, train_steps_per_episode=5, batch_size=32)
-    
-    # Example of loading a model and selecting a move
-    board = chess.Board()
-    print("Initial board:")
-    print(board)
-    selected_move, move_probs = agent.select_move(board)
-    print("Selected move:", selected_move)

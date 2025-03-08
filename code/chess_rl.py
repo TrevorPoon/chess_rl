@@ -45,6 +45,8 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
     
     for game in range(num_games):
 
+        model.train()
+
         if (game+1) % GAMES_PER_INCREMENT == 0 and move_limit < MAX_MOVE_LIMIT:
             move_limit = min(move_limit + MOVE_LIMIT_INCREMENT, MAX_MOVE_LIMIT)
 
@@ -110,6 +112,7 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
             value = -value  # Flip the value to reflect the opponent's perspective
         
         if game % 100 == 0:
+            model.eval()
             save_model_metric(game, model, model_filename)
             wandb.log({"move_limit": move_limit}, step=game)
 
@@ -317,9 +320,9 @@ if __name__ == "__main__":
 
     # Supervised Learning
     print("Reading PGN file and building the training dataset...")
-    dataset = build_dataset_from_pgn(model)
-    print(f"Total training examples: {len(dataset)}")
-    supervised_training(model, dataset)
+    train_dataset, val_dataset = build_dataset_from_pgn(model)
+    print(f"Total training examples: {len(train_dataset)}")
+    supervised_training(model, train_dataset, val_dataset)
     
     if args.mode == "self-play":
         self_play_training(model, num_games=args.num_games)

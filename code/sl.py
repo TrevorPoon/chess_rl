@@ -22,6 +22,7 @@ from eval import run_evaluation, evaluate_strategic_test_suite
 from built_in_agent.agent_random import ChessRandomAgent
 # (Other agents are available if needed)
 
+
 #############################
 # PGN Reading & Processing  #
 #############################
@@ -45,7 +46,7 @@ def process_game(game, model):
     Processes one PGN game into a list of training examples.
     Each example is a tuple: (state_vector, one-hot policy target tensor, value target).
     The value target is set from the perspective of the player who moved.
-    If the game result is a draw or undetermined, the game is skipped.
+    Drawn or non-decisive games are skipped.
     """
     dataset = []
     result = game.headers.get("Result", "*")
@@ -62,26 +63,22 @@ def process_game(game, model):
 
     board = game.board()
     for move in game.mainline_moves():
-        # Get the current board representation as a vector.
-        state = model.board_to_vector(board)
-        # Convert the move to an index, then create a one-hot vector target.
+        # Original example:
+        state = model.board_to_vector(board)  # Expected shape: (channels, 8, 8)
         move_index = model.move_to_index(move)
-        # Create one-hot policy target as a torch tensor (delay conversion to NumPy).
         policy_target = torch.zeros(get_move_space_size(), dtype=torch.float32)
         policy_target[move_index] = 1.0
-
-        # Assign the value target based on whose turn it is.
         if board.turn:  # White to move.
             value_target = white_value
         else:
             value_target = black_value
-
         dataset.append((state, policy_target, value_target))
+        
         board.push(move)
 
     return dataset
 
-def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_chess2000_nomovetimes_14819.pgn"):
+def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_standard2000_nomovetimes_14726.pgn"):
     """
     Reads all games from the given PGN file and processes them into training examples.
     Returns a tuple (train_dataset, val_dataset) after splitting.
@@ -93,7 +90,7 @@ def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_chess2000_nomo
         full_dataset.extend(game_data)
     
     print(f"Total examples before split: {len(full_dataset)}")
-    # Split the dataset into 80% training and 20% validation
+    # Split the dataset into 90% training and 10% validation
     train_dataset, val_dataset = train_test_split(full_dataset, test_size=0.10, random_state=42)
     print(f"Training examples: {len(train_dataset)} | Validation examples: {len(val_dataset)}")
     return train_dataset, val_dataset
@@ -102,15 +99,13 @@ def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_chess2000_nomo
 # Supervised Training Code  #
 #############################
 
-def supervised_training(model, train_dataset, val_dataset, epochs=4, batch_size=64):
+def supervised_training(model, train_dataset, val_dataset, epochs=3, batch_size=64):
     """
     Performs supervised training on the provided training dataset and evaluates on validation data.
     The dataset is a list of tuples: (state, policy target tensor, value target).
     """
     # Prepare training tensors.
-    # Instead of immediate conversion to NumPy, we stack the tensors.
     train_states = torch.tensor(np.array([x[0] for x in train_dataset], dtype=np.float32))
-    # For policy, stack the torch tensors directly.
     train_policy = torch.stack([x[1] for x in train_dataset])
     train_value = torch.tensor(np.array([x[2] for x in train_dataset], dtype=np.float32)).view(-1, 1)
 
@@ -138,14 +133,15 @@ def supervised_training(model, train_dataset, val_dataset, epochs=4, batch_size=
             value_batch = value_batch.to(model.device)
 
             loss_val = model.minimise_loss(state_batch, policy_batch, value_batch, batch_size)
-
+            loss_val.backward()
+            model.optimizer.step()
+            
             total_loss += loss_val.item()
             num_batches += 1
 
         avg_train_loss = total_loss / num_batches if num_batches > 0 else 0
         print(f"Epoch {epoch+1}/{epochs}, Training Average Loss: {avg_train_loss}")
-
-        wandb.log({"sl_epoch": epoch+1, "train_loss": avg_train_loss}, step=epoch+1)
+        wandb.log({"sl_epoch": epoch+1, "sl_train_loss": avg_train_loss}, step=epoch+1)
 
         # Evaluate on validation set.
         model.eval()
@@ -156,7 +152,8 @@ def supervised_training(model, train_dataset, val_dataset, epochs=4, batch_size=
                 state_batch = state_batch.to(model.device)
                 policy_batch = policy_batch.to(model.device)
                 value_batch = value_batch.to(model.device)
-                val_loss +=model.minimise_loss(state_batch, policy_batch, value_batch, batch_size)
+                loss_val = model.minimise_loss(state_batch, policy_batch, value_batch, batch_size)
+                val_loss += loss_val.item()
                 val_batches += 1
         avg_val_loss = val_loss / val_batches if val_batches > 0 else 0
         print(f"Epoch {epoch+1}/{epochs}, Validation Average Loss: {avg_val_loss}")
@@ -184,11 +181,11 @@ def supervised_training(model, train_dataset, val_dataset, epochs=4, batch_size=
 #############################
 
 def main():
-    parser = argparse.ArgumentParser(description="Supervised Learning for Chess Agent using PGN data")
-    parser.add_argument("--pgn_file", type=str, default="data/ficsgamesdb_2024_chess2000_nomovetimes_14819.pgn",
+    parser = argparse.ArgumentParser(description="Supervised Learning for Chess Agent using PGN data with Data Augmentation")
+    parser.add_argument("--pgn_file", type=str, default="data/ficsgamesdb_2024_standard2000_nomovetimes_14726.pgn",
                         help="Path to the PGN file containing game data from FICS")
-    parser.add_argument("--epochs", type=int, default=4,
-                        help="Number of training epochs (default: 4)")
+    parser.add_argument("--epochs", type=int, default=3,
+                        help="Number of training epochs (default: 3)")
     parser.add_argument("--batch_size", type=int, default=64,
                         help="Batch size for training (default: 64)")
     parser.add_argument("--agent", type=str, choices=["neural", "mcts", "distill", "light", "giraffe"],
