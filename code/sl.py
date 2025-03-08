@@ -17,6 +17,8 @@ from utils.util import get_move_space_size
 
 # Import your agent implementations.
 from rl_agent.agent_neural import ChessNeuralAgent
+from eval import run_evaluation, evaluate_strategic_test_suite
+from built_in_agent.agent_random import ChessRandomAgent
 # (Other agents are available if needed)
 
 #############################
@@ -80,9 +82,10 @@ def process_game(game, model):
 
         dataset.append((state, policy_target.numpy(), value_target))
         board.push(move)
+
     return dataset
 
-def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_201801_standard2000_nomovetimes_14314.pgn"):
+def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_standard2000_nomovetimes_14726.pgn"):
     """
     Reads all games from the given PGN file and processes them into training examples.
     """
@@ -123,31 +126,28 @@ def supervised_training(model, dataset, epochs=4, batch_size=32):
             state_batch = state_batch.to(model.device)
             policy_batch = policy_batch.to(model.device)
             value_batch = value_batch.to(model.device)
-            # Forward pass through the model.
-            pred_policy, pred_value = model.model(state_batch)
-            # If the predicted policy vector is larger than our target, pad the target.
-            if pred_policy.size(1) > policy_batch.size(1):
-                padding = torch.zeros(policy_batch.size(0), pred_policy.size(1) - policy_batch.size(1), device=model.device)
-                policy_batch = torch.cat([policy_batch, padding], dim=1)
-            # Compute cross-entropy loss for the policy head.
-            loss_policy = -torch.sum(policy_batch * torch.log(pred_policy + 1e-8)) / state_batch.size(0)
-            # Compute mean squared error loss for the value head.
-            loss_value = torch.mean((value_batch.squeeze() - pred_value.squeeze())**2)
-            loss = loss_policy + loss_value
-            loss.backward()
-            model.optimizer.step()
 
-            total_loss += loss.item()
+            total_loss_val = model.minimise_loss(state_batch, policy_batch, value_batch, batch_size)
+            total_loss += total_loss_val
             num_batches += 1
 
         avg_loss = total_loss / num_batches if num_batches > 0 else 0
-        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss:.4f}")
-        wandb.log({"sl_epoch": epoch+1, "sl_loss": avg_loss})
+        print(f"Epoch {epoch+1}/{epochs}, Average Loss: {avg_loss}")
+
+        sl_epoch = epoch+1
+        wandb.log({"sl_epoch": epoch+1, "sl_loss": avg_loss}, step=sl_epoch)
+
+        sl_win_rate_against_random, sl_draw_rate_against_random, sl_loss_rate_against_random = run_evaluation(model, ChessRandomAgent(), num_games=50)
+        wandb.log({"sl_win_rate_against_random": sl_win_rate_against_random, "sl_draw_rate_against_random": sl_draw_rate_against_random, "sl_loss_rate_against_random": sl_loss_rate_against_random}, step=sl_epoch)
+    
+        sl_sts_total, sl_sts_percentage = evaluate_strategic_test_suite(model)
+        wandb.log({"sl_strategic_test_suite_total": sl_sts_total, "sl_strategic_test_suite_percentage": sl_sts_percentage}, step=sl_epoch)
     
     # Save the model after supervised pre-training.
     # model_filename = f"sl_pretrained_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth"
     # model.save_model(model_filename)
     # print(f"Supervised pre-training complete. Model saved as {model_filename}")
+
 
 #############################
 # Main Function             #
@@ -155,7 +155,7 @@ def supervised_training(model, dataset, epochs=4, batch_size=32):
 
 def main():
     parser = argparse.ArgumentParser(description="Supervised Learning for Chess Agent using PGN data")
-    parser.add_argument("--pgn_file", type=str, default="data/ficsgamesdb_201801_standard2000_nomovetimes_14314.pgn",
+    parser.add_argument("--pgn_file", type=str, default="data/ficsgamesdb_2024_standard2000_nomovetimes_14726.pgn",
                         help="Path to the PGN file containing game data from FICS")
     parser.add_argument("--epochs", type=int, default=4,
                         help="Number of training epochs (default: 4)")

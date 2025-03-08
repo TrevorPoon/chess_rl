@@ -15,14 +15,6 @@ from utils.util import board_to_feature_vector, get_feature_vector_size, get_mov
 
 torch.set_num_threads(os.cpu_count())
 
-# Reward shaping helper: compute material balance from White's perspective.
-def material_score(board):
-    values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
-    score = 0
-    for piece_type, value in values.items():
-        score += len(board.pieces(piece_type, chess.WHITE)) * value
-        score -= len(board.pieces(piece_type, chess.BLACK)) * value
-    return score
 
 class GiraffeNet(nn.Module):
     def __init__(self):
@@ -175,30 +167,23 @@ class GiraffeChessAgent:
     
     def self_play_episode(self):
         """
-        Run a self-play episode and apply reward shaping.
-        At each move, the reward is the change in material (as a simple shaping signal) with an extra penalty for losing pieces.
-        At the end, the game outcome (win/loss/draw) is used as a terminal reward and bootstrapped back over the moves.
+        Run a self-play episode without reward shaping from material score.
+        Each move is assigned an immediate reward of 0, and only the terminal reward (win/loss/draw)
+        is bootstrapped back over the moves.
         The episode transitions are stored in the replay buffer.
         """
         board = chess.Board()
         game_history = []
-        # Initial material score (from White's perspective)
-        prev_score = material_score(board)
         
         while not board.is_game_over():
             # Save state before move
             state = self.board_to_vector(board)
             move, move_probs = self.select_move(board)
             board.push(move)
-            # Compute immediate reward as the change in material balance (from White's perspective)
-            current_score = material_score(board)
-            immediate_reward = current_score - prev_score
-
-            # If material was lost, apply extra penalty
-            if immediate_reward < 0:
-                immediate_reward *= self.loss_penalty
-
-            prev_score = current_score
+            
+            # Immediate reward is set to 0 for all moves
+            immediate_reward = 0.0
+            
             game_history.append((state, move_probs, immediate_reward))
         
         # Terminal reward from game outcome
@@ -225,14 +210,19 @@ class GiraffeChessAgent:
         
         return board.result()  # Return game result for logging if desired
 
+
     def train_step(self, batch_size=32):
+        
         if len(self.replay_buffer) < batch_size:
             return
 
         self.optimizer.zero_grad()
         states, policies, values = self.replay_buffer.sample(batch_size)
         
-        # Use mixed precision if on GPU
+        return self.minimise_loss(states, policies, values, batch_size)
+
+    def minimise_loss(self, states, policies, values, batch_size=32):
+                # Use mixed precision if on GPU
         use_amp = self.device.type == 'cuda'
         if use_amp:
             scaler = torch.cuda.amp.GradScaler()
@@ -259,6 +249,7 @@ class GiraffeChessAgent:
             self.optimizer.step()
         
         return total_loss.item()
+
 
     def save_model(self, model_name="giraffe_chess_model.pth"):
         """
