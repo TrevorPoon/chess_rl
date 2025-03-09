@@ -162,28 +162,13 @@ class ChessNeuralAgent:
     
     def minimise_loss(self, states, policies, values, batch_size=32):
                 # Use mixed precision if on GPU
-        use_amp = self.device.type == 'cuda'
-        if use_amp:
-            scaler = torch.cuda.amp.GradScaler()
-            with torch.cuda.amp.autocast():
-                pred_policies, pred_values = self.model(states)
-                if pred_policies.size(1) > policies.size(1):
-                    padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
-                    policies = torch.cat([policies, padding], dim=1)
-                policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
-                value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
-                total_loss = policy_loss + value_loss
-            scaler.scale(total_loss).backward()
-            scaler.step(self.optimizer)
-            scaler.update()
-        else:
-            pred_policies, pred_values = self.model(states)
-            if pred_policies.size(1) > policies.size(1):
-                padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
-                policies = torch.cat([policies, padding], dim=1)
-            policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
-            value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
-            total_loss = policy_loss + value_loss
+        pred_policies, pred_values = self.model(states)
+        if pred_policies.size(1) > policies.size(1):
+            padding = torch.zeros(policies.size(0), pred_policies.size(1) - policies.size(1), device=self.device)
+            policies = torch.cat([policies, padding], dim=1)
+        policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
+        value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
+        total_loss = policy_loss + value_loss
         
         return total_loss
     
