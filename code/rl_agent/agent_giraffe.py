@@ -82,7 +82,8 @@ class GiraffeChessAgent:
                  default_temperature=1.0,
                  default_noise_weight=0.25,
                  replay_capacity=10000,
-                 optimizer_cls=optim.Adam):
+                 optimizer_cls=optim.Adam,
+                 lr=1e-4):
         """
         Initialize all key variables in one place.
         
@@ -101,7 +102,14 @@ class GiraffeChessAgent:
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = GiraffeNet().to(self.device)
-        self.optimizer = optimizer_cls(self.model.parameters())
+        self.optimizer = optimizer_cls(self.model.parameters(), lr=lr, weight_decay=self.l2_lambda)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',       # we want to reduce LR when loss stops decreasing
+            factor=0.99,       # reduce LR by a factor of 0.5
+            patience=10,     # wait for 100 steps before reducing LR
+            verbose=False
+        )
         self.replay_buffer = ReplayBuffer(capacity=replay_capacity)
 
     def board_to_vector(self, board):

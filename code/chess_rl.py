@@ -28,10 +28,7 @@ from sl import build_dataset_from_pgn, supervised_training
 
 
 # Move limit configuration
-INITIAL_MOVE_LIMIT = 80
-MAX_MOVE_LIMIT = 500
-MOVE_LIMIT_INCREMENT = 20
-GAMES_PER_INCREMENT = 10000  # Increase move limit every 500 games
+INITIAL_MOVE_LIMIT = 500
 BEST_MODEL_PATH = "model_best/Self-play_20250223_193946_neural_fanciful-mountain-17.pth"
 
 def self_play_training(model, num_games=10000000, viz_every=1000):
@@ -46,9 +43,6 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
     for game in range(num_games):
 
         model.train()
-
-        if (game+1) % GAMES_PER_INCREMENT == 0 and move_limit < MAX_MOVE_LIMIT:
-            move_limit = min(move_limit + MOVE_LIMIT_INCREMENT, MAX_MOVE_LIMIT)
 
         board = chess.Board()
         game_states = []
@@ -103,14 +97,15 @@ def self_play_training(model, num_games=10000000, viz_every=1000):
             print(f"Game {game} ended by: {outcome}")
         
         # Update replay buffer for both sides by flipping the value each move
-        for state, move in game_states:
-            model.replay_buffer.push(
-                state, 
-                torch.zeros(get_move_space_size()).index_fill_(0, torch.tensor(model.move_to_index(move)), 1.0),
-                torch.tensor([value])
-            )
-            value = -value  # Flip the value to reflect the opponent's perspective
-        
+        if value != 0.0:
+            for state, move in game_states:
+                model.replay_buffer.push(
+                    state, 
+                    torch.zeros(get_move_space_size()).index_fill_(0, torch.tensor(model.move_to_index(move)), 1.0),
+                    torch.tensor([value])
+                )
+                value = -value  # Flip the value to reflect the opponent's perspective
+            
         if game % 100 == 0:
             model.eval()
             save_model_metric(game, model, model_filename)
@@ -130,9 +125,6 @@ def competitive_training(model, competitor, num_games=10000000, viz_every=1000):
     move_limit = INITIAL_MOVE_LIMIT
     
     for game in range(num_games):
-
-        if (game+1) % GAMES_PER_INCREMENT == 0 and move_limit < MAX_MOVE_LIMIT:
-            move_limit = min(move_limit + MOVE_LIMIT_INCREMENT, MAX_MOVE_LIMIT)
 
         board = chess.Board()
         # Record only the states when the training model (White) makes a move.
