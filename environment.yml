@@ -29,6 +29,7 @@ dependencies:
   - importlib-metadata=7.0.1=py312h06a4308_0
   - intel-openmp=2022.0.1=h06a4308_3633
   - jinja2=3.1.5=py312h06a4308_0
+  - joblib=1.4.2=py312h06a4308_0
   - ld_impl_linux-64=2.40=h12ee557_0
   - libabseil=20240722.0=cxx17_hbbce691_4
   - libblas=3.9.0=28_h59b9bed_openblas
@@ -38,6 +39,7 @@ dependencies:
   - libgcc=14.2.0=h77fa898_1
   - libgcc-ng=14.2.0=h69a702a_1
   - libgfortran=14.2.0=h69a702a_1
+  - libgfortran-ng=14.2.0=h69a702a_1
   - libgfortran5=14.2.0=hd5240d6_1
   - libglib=2.82.2=h2ff4ddf_1
   - libgomp=14.2.0=h77fa898_1
@@ -86,11 +88,14 @@ dependencies:
   - pytorch=2.5.1=cpu_mkl_py312_heeca0f5_108
   - pytz=2024.1=py312h06a4308_0
   - readline=8.2=h5eee18b_0
+  - scikit-learn=1.6.1=py312h6a678d5_0
+  - scipy=1.15.1=py312h2809609_0
   - setuptools=73.0.1=pyhd8ed1ab_0
   - sleef=3.8=h1b44611_0
   - sqlite=3.45.2=h2c6b66d_0
   - sympy=1.13.3=py312h06a4308_1
   - tbb=2021.8.0=hdb19cb5_0
+  - threadpoolctl=3.5.0=py312he106c6f_0
   - tk=8.6.13=noxft_h4845f30_101
   - typing_extensions=4.12.2=py312h06a4308_0
   - tzdata=2025a=h04d1e81_0
