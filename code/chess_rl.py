@@ -249,9 +249,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["neural", "mcts", "distill", "light", "giraffe"],
+        choices=["neural", "mcts", "distill", "light", "giraffe", "nnue"],
         default="neural",
-        help="Specify the training agent type. Currently supported: 'neural', 'mcts', 'distill', 'light', 'giraffe'."
+        help="Specify the training agent type. Currently supported: 'neural', 'mcts', 'distill', 'light', 'giraffe','nnue'."
     )
     parser.add_argument(
         "--opponent",
@@ -303,6 +303,9 @@ if __name__ == "__main__":
         model = ChessLightAgent()
     elif args.agent == "giraffe":
         model = GiraffeChessAgent()
+    elif args.agent == "nnue":
+        from rl_agent.agent_NNUE import NNUEChessAgent
+        model = NNUEChessAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
     
