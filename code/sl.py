@@ -99,7 +99,7 @@ def build_dataset_from_pgn(model, pgn_file="data/ficsgamesdb_2024_standard2000_n
 # Supervised Training Code  #
 #############################
 
-def supervised_training(model, train_dataset, val_dataset, epochs=3, batch_size=64):
+def supervised_training(model, train_dataset, val_dataset, epochs=3, batch_size=128):
     """
     Performs supervised training on the provided training dataset and evaluates on validation data.
     The dataset is a list of tuples: (state, policy target tensor, value target).
@@ -186,8 +186,8 @@ def main():
                         help="Path to the PGN file containing game data from FICS")
     parser.add_argument("--epochs", type=int, default=3,
                         help="Number of training epochs (default: 3)")
-    parser.add_argument("--batch_size", type=int, default=64,
-                        help="Batch size for training (default: 64)")
+    parser.add_argument("--batch_size", type=int, default=128,
+                        help="Batch size for training (default: 128)")
     parser.add_argument("--agent", type=str, choices=["neural", "mcts", "distill", "light", "giraffe"],
                         default="giraffe", help="Specify the training agent type")
     parser.add_argument("--notes", type=str, default="",

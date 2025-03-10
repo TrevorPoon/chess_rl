@@ -28,8 +28,10 @@ from sl import build_dataset_from_pgn, supervised_training
 
 
 # Move limit configuration
-INITIAL_MOVE_LIMIT = 500
+INITIAL_MOVE_LIMIT = 100
 BEST_MODEL_PATH = "model_best/Self-play_20250223_193946_neural_fanciful-mountain-17.pth"
+
+
 
 def self_play_training(model, num_games=10000000, viz_every=1000):
     """Train the model through self-play with video recording."""
@@ -179,15 +181,16 @@ def competitive_training(model, competitor, num_games=10000000, viz_every=1000):
         
         # Update replay buffer for only the moves made by the training agent.
         # Since the model always plays as White, we do not flip the value.
-        for state, move in model_states:
-            model.replay_buffer.push(
-                state,
-                torch.zeros(get_move_space_size()).index_fill_(0, torch.tensor(model.move_to_index(move)), 1.0),
-                torch.tensor([value])
-            )
+        if value != 0.0:
+            for state, move in model_states:
+                model.replay_buffer.push(
+                    state,
+                    torch.zeros(get_move_space_size()).index_fill_(0, torch.tensor(model.move_to_index(move)), 1.0),
+                    torch.tensor([value])
+                )
         
         # Training step
-        if game % 10 == 0:
+        if game % 100 == 0:
             save_model_metric(game, model, model_filename)
 
 def evaluate_model(model, game, competitor, num_games=50):
@@ -264,11 +267,18 @@ if __name__ == "__main__":
         help="Number of games to play in training."
     )
     parser.add_argument(
-    "--record",
-    type=lambda x: x.lower() in ['true', '1', 'yes'],
-    default=False,
-    help="Enable video recording during training. Specify True or False (default: False)"
+        "--record",
+        type=lambda x: x.lower() in ['true', '1', 'yes'],
+        default=False,
+        help="Enable video recording during training. Specify True or False (default: False)"
     )
+    parser.add_argument(
+        "--sl",
+        type=lambda x: x.lower() in ['true', '1', 'yes'],
+        default=True,
+        help="Enable supervised learning."
+    )
+
 
     args = parser.parse_args()
 
@@ -314,10 +324,11 @@ if __name__ == "__main__":
     run.name = f"{args.mode.capitalize()}_{timestamp}_{args.agent}_{run.name}"
 
     # Supervised Learning
-    print("Reading PGN file and building the training dataset...")
-    train_dataset, val_dataset = build_dataset_from_pgn(model)
-    print(f"Total training examples: {len(train_dataset)}")
-    supervised_training(model, train_dataset, val_dataset)
+    if args.sl:
+        print("Reading PGN file and building the training dataset...")
+        train_dataset, val_dataset = build_dataset_from_pgn(model)
+        print(f"Total training examples: {len(train_dataset)}")
+        supervised_training(model, train_dataset, val_dataset)
     
     if args.mode == "self-play":
         self_play_training(model, num_games=args.num_games)

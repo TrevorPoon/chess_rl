@@ -143,7 +143,7 @@ class ChessNeuralAgent:
         return legal_moves[move_idx], move_probs
 
     
-    def train_step(self, batch_size=32):
+    def train_step(self, batch_size=128):
         """Perform one training step"""
         if len(self.replay_buffer) < batch_size:
             return
@@ -160,7 +160,7 @@ class ChessNeuralAgent:
         
         return total_loss.item()
     
-    def minimise_loss(self, states, policies, values, batch_size=32):
+    def minimise_loss(self, states, policies, values, batch_size=128):
                 # Use mixed precision if on GPU
         pred_policies, pred_values = self.model(states)
         if pred_policies.size(1) > policies.size(1):
