@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from chess import pgn, Board
 from typing import List, Dict
 import logging
+import chess
 
 #########################################
 #         Helper Functions              #
@@ -268,11 +269,10 @@ def evaluate_strategic_test_suite(model, device, int_to_move, epd_file_path="dat
         
         move_uci = predict_move(board, model, device, int_to_move)
         
-        selected_uci = move_uci.uci()
-        score_awarded = expected_moves.get(selected_uci, 0)
+        score_awarded = expected_moves.get(move_uci, 0)
         total_score += score_awarded
         logging.info("Test %d: Selected move %s, Expected: %s, Score: %d",
-                     idx, selected_uci, expected_moves, score_awarded)
+                     idx, move_uci, expected_moves, score_awarded)
     
     overall_elapsed = time.perf_counter() - start_time
     percentage = (total_score / max_score) * 100 if max_score > 0 else 0
@@ -301,7 +301,6 @@ def evaluate_random_model(model, device, int_to_move, num_games=100):
                 if move_uci is None:
                     move = random.choice(list(board.legal_moves))
                 else:
-                    import chess
                     move = chess.Move.from_uci(move_uci)
             else:  # Black's turn: random move
                 move = random.choice(list(board.legal_moves))
