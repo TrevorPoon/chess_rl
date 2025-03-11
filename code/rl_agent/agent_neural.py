@@ -168,7 +168,8 @@ class ChessNeuralAgent:
             policies = torch.cat([policies, padding], dim=1)
         policy_loss = -torch.sum(policies * torch.log(pred_policies + 1e-8)) / batch_size
         value_loss = torch.mean((values - pred_values.squeeze()) ** 2)
-        total_loss = policy_loss + value_loss
+        l2_reg = self.l2_lambda * sum(torch.norm(param) ** 2 for param in self.model.parameters())
+        total_loss = policy_loss + value_loss + l2_reg
         
         return total_loss
     

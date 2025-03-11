@@ -135,7 +135,7 @@ def main():
                         help="Number of training epochs (default: 3)")
     parser.add_argument("--batch_size", type=int, default=128,
                         help="Batch size for training (default: 128)")
-    parser.add_argument("--agent", type=str, choices=["neural", "mcts", "distill", "light", "giraffe"],
+    parser.add_argument("--agent", type=str, choices=["neural", "mcts", "distill", "light", "giraffe","nnue"],
                         default="giraffe", help="Specify the training agent type")
     parser.add_argument("--notes", type=str, default="",
                         help="Additional notes to log in wandb")
@@ -162,6 +162,9 @@ def main():
     elif args.agent == "giraffe":
         from rl_agent.agent_giraffe import GiraffeChessAgent
         model = GiraffeChessAgent()
+    elif args.agent == "nnue":
+        from rl_agent.agent_NNUE import NNUEChessAgent
+        model = NNUEChessAgent()
     else:
         raise ValueError(f"Unsupported agent type: {args.agent}")
 

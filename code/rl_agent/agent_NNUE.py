@@ -128,35 +128,76 @@ class NNUEChessAgent:
             print(f"Error loading model from {model_path}: {e}")
             raise e
 
-    def select_move(self, board):
+    def select_move(self, board, temperature=None, noise_weight=None):
         """
-        Select a move by simulating each legal move and choosing the one that 
-        leads to the best evaluation, according to the NNUE network.
+        Select a move by evaluating each legal move and converting evaluations into move 
+        probabilities using temperature scaling and optional Dirichlet noise.
         
-        For white, a higher evaluation is better; for black, a lower evaluation is better.
+        Args:
+            board (chess.Board): Current board state.
+            temperature (float, optional): Temperature for scaling probabilities.
+                Defaults to 1.0.
+            noise_weight (float, optional): Weight for Dirichlet noise.
+                Defaults to 0.0.
+        
+        Returns:
+            tuple: (chosen_move, move_probability_distribution)
         """
-        best_move = None
-        turn = board.turn
-        best_eval = -np.inf if turn == chess.WHITE else np.inf
+        # Set default parameters if not provided.
+        temperature = temperature if temperature is not None else 1.0
+        noise_weight = noise_weight if noise_weight is not None else 0.0
+
+        legal_moves = list(board.legal_moves)
+        evals = []
         
-        for move in board.legal_moves:
+        # Evaluate each legal move.
+        for move in legal_moves:
             board.push(move)
             state = self.board_to_vector(board)
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 eval_value = self.model(state_tensor).item()
+            evals.append(eval_value)
             board.pop()
-            
-            if turn == chess.WHITE:
-                if eval_value > best_eval:
-                    best_eval = eval_value
-                    best_move = move
-            else:
-                if eval_value < best_eval:
-                    best_eval = eval_value
-                    best_move = move
+
+        # Convert evaluations to a tensor.
+        evals_tensor = torch.tensor(evals, dtype=torch.float32, device=self.device)
+
+        # Handle the special case when temperature is zero (greedy selection).
+        if temperature == 0:
+            if board.turn:  # White to move: choose highest evaluation.
+                best_index = torch.argmax(evals_tensor)
+            else:           # Black to move: choose lowest evaluation.
+                best_index = torch.argmin(evals_tensor)
+            move_probs = torch.zeros(len(legal_moves), device=self.device)
+            move_probs[best_index] = 1.0
+            chosen_index = best_index.item()
+            return legal_moves[chosen_index], move_probs.cpu().numpy()
         
-        return best_move
+        # Adjust evaluations based on the side to move.
+        # For white, higher evaluations are better; for black, lower evaluations are better.
+        if board.turn:  # white to move
+            scaled = evals_tensor / temperature
+        else:           # black to move: invert evaluation values so that lower becomes better
+            scaled = -evals_tensor / temperature
+
+        # Convert scaled evaluations into a probability distribution using softmax.
+        move_probs = torch.softmax(scaled, dim=0)
+
+        # Optionally add Dirichlet noise.
+        if noise_weight > 0:
+            noise = torch.tensor(
+                np.random.dirichlet([0.03] * len(legal_moves)),
+                dtype=torch.float32, device=self.device
+            )
+            move_probs = (1 - noise_weight) * move_probs + noise_weight * noise
+            move_probs = move_probs / (move_probs.sum() + 1e-8)
+
+        # Sample a move according to the computed probabilities.
+        chosen_index = torch.multinomial(move_probs, 1).item()
+        return legal_moves[chosen_index], move_probs.cpu().numpy()
+
+
 
     def train(self):
         """Set the model to training mode."""
@@ -165,8 +206,12 @@ class NNUEChessAgent:
     def eval(self):
         """Set the model to evaluation mode."""
         self.model.eval()
+    
+    def move_to_index(self, move):
+        # Since NNUE doesn't use a policy head, always return 0.
+        return 0
 
-    def minimise_loss(self, states, values, batch_size=32):
+    def minimise_loss(self, states, _, values, batch_size=32):
         """
         Compute the loss as the mean squared error (MSE) between target and predicted evaluations,
         plus L2 regularization.
