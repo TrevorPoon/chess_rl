@@ -57,6 +57,7 @@ class ChessNeuralAgent:
         self.model = ChessNet().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters())
         self.replay_buffer = ReplayBuffer()
+        self.l2_lambda = 1e-4
     
     def board_to_vector(self, board):
         return board_to_tensor(board)
